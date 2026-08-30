@@ -1,0 +1,38 @@
+# ==============================================================================
+# MiniMark - Git Ignore Configuration
+# ==============================================================================
+
+# --- Python 编译与缓存文件 ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# --- 虚拟环境 ---
+.venv/
+venv/
+env/
+
+# --- 文档目录 (私有设计与 PRD) ---
+doc/
+
+# --- PyInstaller 构建临时文件与输出 ---
+build/
+dist/
+release/
+*.manifest
+*.spec.bak
+*.exe
+*.zip
+
+# --- IDE 与系统临时文件 ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log

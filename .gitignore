@@ -20,8 +20,8 @@ ENV/
 env.bak/
 venv.bak/
 
-# --- 文档与私有设计 (可选) ---
-doc/
+# --- 文档与私有设计 (已解除忽略，纳入 Git 版本保护) ---
+# doc/
 
 # --- PyInstaller 构建临时文件与发布包 ---
 build/

@@ -9,7 +9,7 @@ import sys
 import json
 from pathlib import Path
 
-from core import FileManager, WorkspaceManager, SystemHelper
+from core import FileManager, WorkspaceManager, SystemHelper, AppRegistrar
 from PySide6.QtCore import QObject, Slot, Signal
 from PySide6.QtWidgets import QFileDialog
 
@@ -26,7 +26,7 @@ class MiniMarkBackend(QObject):
         self.main_window = main_window
         self.current_workspace = ""
 
-    # ==================== 系统主题与环境 ====================
+    # ==================== 系统主题、注册与环境 ====================
 
     @Slot(result=str)
     def get_system_theme(self) -> str:
@@ -40,6 +40,31 @@ class MiniMarkBackend(QObject):
     def set_window_title(self, title: str):
         if self.main_window:
             self.main_window.setWindowTitle(f"{title} - MiniMark" if title else "MiniMark")
+
+    @Slot(result=str)
+    def get_app_registration_info(self) -> str:
+        """获取 Windows 应用程序注册与关联状态"""
+        return json.dumps(AppRegistrar.get_status_report(is_lite=False))
+
+    @Slot(result=str)
+    def register_windows_app(self) -> str:
+        """注册为 Windows 应用程序并更新打开方式"""
+        success, msg = AppRegistrar.register(is_lite=False, notify_explorer=True)
+        return json.dumps({
+            "success": success,
+            "message": msg,
+            "status": AppRegistrar.get_status_report(is_lite=False)
+        })
+
+    @Slot(result=str)
+    def unregister_windows_app(self) -> str:
+        """从 Windows 注册表中注销并清理所有关联"""
+        success, msg = AppRegistrar.unregister(is_lite=False, notify_explorer=True)
+        return json.dumps({
+            "success": success,
+            "message": msg,
+            "status": AppRegistrar.get_status_report(is_lite=False)
+        })
 
     # ==================== 文件操作 ====================
 
@@ -114,3 +139,24 @@ class MiniMarkBackend(QObject):
     @Slot(str, result=bool)
     def reveal_in_explorer(self, target_path: str) -> bool:
         return SystemHelper.reveal_in_explorer(target_path)
+
+    # ==================== Windows 应用注册与关联管理 ====================
+
+    @Slot(result=str)
+    def get_app_registration_info(self) -> str:
+        from core import AppRegistrar
+        info = AppRegistrar.get_status_report(is_lite=False)
+        return json.dumps(info)
+
+    @Slot(result=str)
+    def register_windows_app(self) -> str:
+        from core import AppRegistrar
+        success, msg = AppRegistrar.register(is_lite=False, notify_explorer=True)
+        return json.dumps({"success": success, "message": msg})
+
+    @Slot(result=str)
+    def unregister_windows_app(self) -> str:
+        from core import AppRegistrar
+        success, msg = AppRegistrar.unregister(is_lite=False, notify_explorer=True)
+        return json.dumps({"success": success, "message": msg})
+

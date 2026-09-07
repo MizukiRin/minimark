@@ -59,7 +59,25 @@ const I18N = {
     copyCode: "复制",
     copied: "已复制",
     unsupportedFile: "不支持打开此类格式文件（仅支持 Markdown / 文本文件）",
-    confirmDelete: "确定要删除该项吗？此操作无法撤销。"
+    confirmDelete: "确定要删除该项吗？此操作无法撤销。",
+    winIntegration: "Windows 应用关联设置",
+    winIntegrationTitle: "Windows 应用程序注册与关联管理",
+    regStatusLabel: "注册状态：",
+    currentPathLabel: "当前运行程序：",
+    regPathLabel: "注册表关联路径：",
+    supportedExtsLabel: "支持格式关联：",
+    winIntegrationDesc: "注册后，可在任意 Markdown 文件的右键「打开方式」中找到本应用，并已纳入 Windows 设置「已安装的应用」管理。若移动了软件文件夹，再次启动将自动自愈并更新关联。",
+    winUnregisterBtn: "从注册表中注销 / 卸载",
+    winRegisterBtn: "重新注册 / 修复关联",
+    winRepairBtn: "重新注册 / 修复关联",
+    close: "关闭",
+    statusRegistered: "已注册为系统应用",
+    statusNotRegistered: "未注册到系统",
+    statusNeedsHealing: "路径不一致 (建议修复)",
+    regSuccessToast: "已成功注册为 Windows 系统应用！支持在右键打开方式中选择 MiniMark",
+    selfHealToast: "检测到程序移动，已自动自愈修复 Windows 应用程序关联！",
+    unregSuccessToast: "已成功从 Windows 注册表中注销所有关联",
+    confirmUnregister: "确定要注销并从 Windows 应用程序注册表及「打开方式」中移除 MiniMark 吗？（不会删除您的文件）"
   },
   en: {
     brand: "MiniMark",
@@ -116,7 +134,25 @@ const I18N = {
     copyCode: "Copy",
     copied: "Copied",
     unsupportedFile: "Unsupported file format (Only Markdown / Text files are supported)",
-    confirmDelete: "Are you sure you want to delete this item? This action cannot be undone."
+    confirmDelete: "Are you sure you want to delete this item? This action cannot be undone.",
+    winIntegration: "Windows Integration Settings",
+    winIntegrationTitle: "Windows App Registration & File Associations",
+    regStatusLabel: "Registration Status:",
+    currentPathLabel: "Current Executable:",
+    regPathLabel: "Registered Path:",
+    supportedExtsLabel: "Supported Formats:",
+    winIntegrationDesc: "Once registered, MiniMark appears in the Explorer 'Open With' menu for Markdown files and Windows Installed Apps. If you move this executable, MiniMark will automatically self-heal upon next launch.",
+    winUnregisterBtn: "Unregister / Uninstall from Registry",
+    winRegisterBtn: "Re-register / Repair Associations",
+    winRepairBtn: "Re-register / Repair Associations",
+    close: "Close",
+    statusRegistered: "Registered as System App",
+    statusNotRegistered: "Not Registered",
+    statusNeedsHealing: "Path Mismatch (Repair Recommended)",
+    regSuccessToast: "MiniMark successfully registered as a Windows app! Available in 'Open with'.",
+    selfHealToast: "Relocation detected: Windows app associations self-healed automatically!",
+    unregSuccessToast: "Successfully unregistered MiniMark from Windows registry",
+    confirmUnregister: "Are you sure you want to unregister MiniMark from the Windows registry and 'Open with' menu? (No files will be deleted)"
   }
 };
 
@@ -199,7 +235,13 @@ class MiniMarkApp {
       statusStats: document.getElementById("status-stats"),
       statusMode: document.getElementById("status-mode"),
       btnLang: document.getElementById("btn-lang"),
-      btnTheme: document.getElementById("btn-theme")
+      btnTheme: document.getElementById("btn-theme"),
+      winIntegrationModal: document.getElementById("windows-integration-modal"),
+      winStatusBadge: document.getElementById("win-status-badge"),
+      winCurrentPath: document.getElementById("win-current-path"),
+      winRegPath: document.getElementById("win-reg-path"),
+      btnWinRegister: document.getElementById("btn-win-register"),
+      btnWinUnregister: document.getElementById("btn-win-unregister")
     };
 
     this.init();
@@ -322,6 +364,15 @@ class MiniMarkApp {
       },
       reveal_in_explorer: (path) => {
         api.reveal_in_explorer(path);
+      },
+      get_app_registration_info: (cb) => {
+        api.get_app_registration_info().then((res) => cb && cb(toResStr(res)));
+      },
+      register_windows_app: (cb) => {
+        api.register_windows_app().then((res) => cb && cb(toResStr(res)));
+      },
+      unregister_windows_app: (cb) => {
+        api.unregister_windows_app().then((res) => cb && cb(toResStr(res)));
       },
       themeChanged: {
         connect: (cb) => {
@@ -867,6 +918,116 @@ if __name__ == "__main__":
     return this.tabs.find(t => t.id === this.activeTabId);
   }
 
+  // ==================== Windows 应用程序关联与自愈管理 ====================
+
+  notifyRegistrationResult(result) {
+    if (!result) return;
+    const t = I18N[this.lang];
+    if (result.was_registered_now) {
+      this.showToast(t.regSuccessToast, "info", 5000);
+    } else if (result.was_self_healed) {
+      this.showToast(t.selfHealToast, "info", 5000);
+    }
+  }
+
+  openWindowsIntegrationModal() {
+    if (this.dom.winIntegrationModal) {
+      this.dom.winIntegrationModal.style.display = "flex";
+      this.refreshWindowsRegistrationStatus();
+    }
+  }
+
+  closeWindowsIntegrationModal() {
+    if (this.dom.winIntegrationModal) {
+      this.dom.winIntegrationModal.style.display = "none";
+    }
+  }
+
+  refreshWindowsRegistrationStatus() {
+    if (!this.backend || !this.backend.get_app_registration_info) return;
+
+    if (this.dom.winStatusBadge) {
+      this.dom.winStatusBadge.innerText = this.lang === "zh" ? "检测中..." : "Checking...";
+      this.dom.winStatusBadge.className = "win-badge";
+    }
+
+    this.backend.get_app_registration_info((resStr) => {
+      try {
+        const info = typeof resStr === "string" ? JSON.parse(resStr) : resStr;
+        const t = I18N[this.lang];
+
+        const regPath = info.registered_path || info.registered_exe || "";
+        const isMatching = (info.is_aligned !== undefined) ? info.is_aligned : (info.is_path_matching !== undefined ? info.is_path_matching : false);
+
+        if (this.dom.winCurrentPath) {
+          this.dom.winCurrentPath.innerText = info.current_exe || "-";
+        }
+        if (this.dom.winRegPath) {
+          this.dom.winRegPath.innerText = regPath || `(${this.lang === "zh" ? "未注册" : "Not Registered"})`;
+        }
+
+        if (this.dom.winStatusBadge) {
+          if (info.is_registered && isMatching) {
+            this.dom.winStatusBadge.innerText = t.statusRegistered;
+            this.dom.winStatusBadge.className = "win-badge success";
+          } else if (info.is_registered && !isMatching) {
+            this.dom.winStatusBadge.innerText = t.statusNeedsHealing;
+            this.dom.winStatusBadge.className = "win-badge warning";
+          } else {
+            this.dom.winStatusBadge.innerText = t.statusNotRegistered;
+            this.dom.winStatusBadge.className = "win-badge";
+          }
+        }
+
+        if (this.dom.btnWinUnregister) {
+          this.dom.btnWinUnregister.style.display = info.is_registered ? "inline-block" : "none";
+        }
+        if (this.dom.btnWinRegister) {
+          this.dom.btnWinRegister.innerText = info.is_registered ? (t.winRepairBtn || t.winRegisterBtn) : t.winRegisterBtn;
+        }
+      } catch (err) {
+        console.error("Failed to parse registration status:", err);
+      }
+    });
+  }
+
+  handleManualRegister() {
+    if (!this.backend || !this.backend.register_windows_app) return;
+    this.backend.register_windows_app((resStr) => {
+      try {
+        const res = typeof resStr === "string" ? JSON.parse(resStr) : resStr;
+        if (res && res.success) {
+          this.showToast(I18N[this.lang].regSuccessToast, "info", 4000);
+          this.refreshWindowsRegistrationStatus();
+        } else {
+          this.showToast(res ? (res.error || "Registration failed") : "Registration failed", "error");
+        }
+      } catch (err) {
+        console.error("Register error:", err);
+      }
+    });
+  }
+
+  handleManualUnregister() {
+    const t = I18N[this.lang];
+    if (!confirm(t.confirmUnregister)) return;
+    if (!this.backend || !this.backend.unregister_windows_app) return;
+
+    this.backend.unregister_windows_app((resStr) => {
+      try {
+        const res = typeof resStr === "string" ? JSON.parse(resStr) : resStr;
+        if (res && res.success) {
+          this.showToast(t.unregSuccessToast, "info", 4000);
+          this.refreshWindowsRegistrationStatus();
+        } else {
+          this.showToast(res ? (res.error || "Unregistration failed") : "Unregistration failed", "error");
+        }
+      } catch (err) {
+        console.error("Unregister error:", err);
+      }
+    });
+  }
+
   // ==================== 文件与工作区 IO & 智能文件名 ====================
 
   extractSmartFilename(tab) {
@@ -984,20 +1145,23 @@ if __name__ == "__main__":
       return;
     }
 
-    if (this.backend && this.backend.read_file) {
-      this.backend.read_file(filePath, (resStr) => {
-        try {
-          const res = JSON.parse(resStr);
-          if (res.success) {
-            this.openFileFromData(res.path, res.name, res.content);
-          } else {
-            this.showToast("打开文件失败: " + res.error, "error");
-          }
-        } catch (e) {
-          console.error("Read file error:", e);
-        }
-      });
+    if (!this.backend || !this.backend.read_file) {
+      setTimeout(() => this.openFileByPath(filePath, fileName), 100);
+      return;
     }
+
+    this.backend.read_file(filePath, (resStr) => {
+      try {
+        const res = JSON.parse(resStr);
+        if (res.success) {
+          this.openFileFromData(res.path, res.name, res.content);
+        } else {
+          this.showToast("打开文件失败: " + res.error, "error");
+        }
+      } catch (e) {
+        console.error("Read file error:", e);
+      }
+    });
   }
 
   openFileFromData(path, name, content) {
@@ -1005,13 +1169,17 @@ if __name__ == "__main__":
     this.renderHomeRecents();
 
     const currentTab = this.getActiveTab();
-    if (currentTab && currentTab.isUntitled && !currentTab.isDirty && currentTab.content === "") {
-      currentTab.path = path;
-      currentTab.name = name;
-      currentTab.content = content;
-      currentTab.originalContent = content;
-      currentTab.isUntitled = false;
-      currentTab.isDirty = false;
+    const isSingleWelcomeTab = (this.tabs.length === 1 && this.tabs[0].name === "README.md" && !this.tabs[0].path && !this.tabs[0].isDirty);
+    const isSingleEmptyTab = (currentTab && currentTab.isUntitled && !currentTab.isDirty && currentTab.content === "");
+
+    if (isSingleWelcomeTab || isSingleEmptyTab) {
+      const targetTab = isSingleWelcomeTab ? this.tabs[0] : currentTab;
+      targetTab.path = path;
+      targetTab.name = name;
+      targetTab.content = content;
+      targetTab.originalContent = content;
+      targetTab.isUntitled = false;
+      targetTab.isDirty = false;
       this.hideHomeDashboard();
       this.dom.editorTextarea.value = content;
       this.renderTabs();
@@ -1019,6 +1187,15 @@ if __name__ == "__main__":
       this.renderOutline();
       this.renderCurrentMarkdown();
       this.updateStatusBar();
+
+      // 智能替换时，左侧工作区自动加载并展示该文件所在的文件夹目录树
+      if (path) {
+        const lastSlash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+        if (lastSlash > 0) {
+          const dir = path.substring(0, lastSlash);
+          this.loadWorkspace(dir);
+        }
+      }
     } else {
       this.createTab(name, content, path, false);
     }
@@ -1114,22 +1291,25 @@ if __name__ == "__main__":
   }
 
   loadWorkspace(folderPath) {
-    if (this.backend && this.backend.get_folder_tree) {
-      this.backend.get_folder_tree(folderPath, (resStr) => {
-        try {
-          const res = JSON.parse(resStr);
-          if (res.success && res.data) {
-            this.workspaceData = res.data;
-            this.addRecentFolder(res.data.path, res.data.name);
-            this.renderFileTree();
-            this.renderHomeRecents();
-            if (this.isSidebarCollapsed) this.toggleSidebar();
-          }
-        } catch (e) {
-          console.error("Load workspace error:", e);
-        }
-      });
+    if (!this.backend || !this.backend.get_folder_tree) {
+      setTimeout(() => this.loadWorkspace(folderPath), 100);
+      return;
     }
+
+    this.backend.get_folder_tree(folderPath, (resStr) => {
+      try {
+        const res = JSON.parse(resStr);
+        if (res.success && res.data) {
+          this.workspaceData = res.data;
+          this.addRecentFolder(res.data.path, res.data.name);
+          this.renderFileTree();
+          this.renderHomeRecents();
+          if (this.isSidebarCollapsed) this.toggleSidebar();
+        }
+      } catch (e) {
+        console.error("Load workspace error:", e);
+      }
+    });
   }
 
   // ==================== 侧边栏文件树与临时文件展示 ====================
@@ -2155,6 +2335,14 @@ sequenceDiagram
 
     this.initScrollSync();
     this.initSplitterDrag();
+
+    if (this.dom.winIntegrationModal) {
+      this.dom.winIntegrationModal.addEventListener("click", (e) => {
+        if (e.target === this.dom.winIntegrationModal) {
+          this.closeWindowsIntegrationModal();
+        }
+      });
+    }
   }
 
   initSplitterDrag() {
@@ -2191,8 +2379,13 @@ sequenceDiagram
     window.addEventListener("keydown", (e) => {
       const isCtrl = e.ctrlKey || e.metaKey;
 
-      if (e.key === "Escape" && this.dom.saveConfirmModal.style.display !== "none") {
+      if (e.key === "Escape" && this.dom.saveConfirmModal && this.dom.saveConfirmModal.style.display !== "none") {
         this.hideSaveConfirmDialog();
+        return;
+      }
+
+      if (e.key === "Escape" && this.dom.winIntegrationModal && this.dom.winIntegrationModal.style.display !== "none") {
+        this.closeWindowsIntegrationModal();
         return;
       }
 

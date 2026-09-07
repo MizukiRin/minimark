@@ -19,10 +19,31 @@ from backend import MiniMarkBackend
 
 def get_resource_path(relative_path):
     """获取资源文件绝对路径（兼容开发环境与 PyInstaller 打包环境）"""
+    candidates = []
+
+    # 1. PyInstaller 内部解压/数据目录 (sys._MEIPASS)
     if hasattr(sys, "_MEIPASS"):
-        return os.path.join(sys._MEIPASS, relative_path)
+        candidates.append(sys._MEIPASS)
+
+    # 2. 可执行文件同级目录及 _internal 目录
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        candidates.append(exe_dir)
+        candidates.append(os.path.join(exe_dir, "_internal"))
+
+    # 3. 源码开发环境
     base_path = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base_path, relative_path)
+    candidates.append(base_path)
+    candidates.append(os.path.dirname(base_path))
+    candidates.append(os.getcwd())
+
+    for base in candidates:
+        if base:
+            full_path = os.path.abspath(os.path.join(base, relative_path))
+            if os.path.exists(full_path):
+                return full_path
+
+    return os.path.abspath(os.path.join(base_path, relative_path))
 
 
 class CustomWebEnginePage(QWebEnginePage):
@@ -82,12 +103,20 @@ class MiniMarkWindow(QMainWindow):
 
         # 加载前端页面
         html_path = get_resource_path(os.path.join("ui", "index.html"))
+        if not os.path.exists(html_path):
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                f"未检测到 UI 核心界面文件：\n{html_path}\n\n【重要提示】：\n请勿单独把 exe 拖出！请将整个压缩包解压后，保持 exe 与 _internal 文件夹在同一目录下运行。",
+                "MiniMark 启动错误",
+                0x10
+            )
+            sys.exit(1)
         self.browser.setUrl(QUrl.fromLocalFile(html_path))
 
         # 若启动时传入了文件或目录参数，页面加载完成后通知前端打开
         self.initial_path = initial_path
-        if self.initial_path and os.path.exists(self.initial_path):
-            self.browser.loadFinished.connect(self.on_initial_load_finished)
+        self.browser.loadFinished.connect(self.on_load_finished)
 
     def check_system_theme_change(self):
         """轮询检测 Windows 系统深浅主题变化"""
@@ -96,22 +125,50 @@ class MiniMarkWindow(QMainWindow):
             self.last_system_theme = current_theme
             self.backend.themeChanged.emit(current_theme)
 
-    def on_initial_load_finished(self, ok):
-        """主页面加载完毕后，若有命令行传入路径，则触发打开"""
-        if not ok or not self.initial_path:
+    def on_load_finished(self, ok):
+        """主页面加载完毕后的处理流程"""
+        if not ok:
             return
-        abs_path = os.path.abspath(self.initial_path).replace("\\", "/")
-        if os.path.isdir(self.initial_path):
-            # 打开文件夹
-            js_code = f"window.app && window.app.loadWorkspace('{abs_path}');"
+
+        # 1. 异步执行 Windows 应用注册与移动自愈检测（极速 0.1ms，非阻塞）
+        QTimer.singleShot(100, self.do_app_registration_check)
+
+        # 2. 若有命令行传入路径，延时 250ms 触发打开（确保 QWebChannel 握手与 DOM 初始化完成）
+        if self.initial_path and os.path.exists(self.initial_path):
+            import json
+            abs_path = os.path.abspath(self.initial_path).replace("\\", "/")
+            clean_path = json.dumps(abs_path)
+            if os.path.isdir(self.initial_path):
+                js_code = f"window.app && window.app.loadWorkspace && window.app.loadWorkspace({clean_path});"
+            else:
+                js_code = f"window.app && window.app.openFileByPath && window.app.openFileByPath({clean_path});"
+            QTimer.singleShot(250, lambda: self.browser.page().runJavaScript(js_code))
+
+    def do_app_registration_check(self):
+        """执行首次注册或路径自愈，并将结果同步到前端"""
+        try:
+            import json
+            from core import AppRegistrar
+            reg_res = AppRegistrar.check_and_heal(is_lite=False)
+            res_json = json.dumps(reg_res)
+            js_code = f"window.app && window.app.notifyRegistrationResult && window.app.notifyRegistrationResult({res_json});"
             self.browser.page().runJavaScript(js_code)
-        elif os.path.isfile(self.initial_path):
-            # 打开文件
-            js_code = f"window.app && window.app.openFileByPath('{abs_path}');"
-            self.browser.page().runJavaScript(js_code)
+        except Exception as e:
+            print("Registration check error:", e)
 
 
 def main():
+    # 命令行快速卸载处理（系统设置 -> 已安装应用中点击卸载时调用）
+    if "--uninstall" in sys.argv or "--unregister" in sys.argv:
+        try:
+            import ctypes
+            from core import AppRegistrar
+            success, msg = AppRegistrar.unregister(is_lite=False)
+            ctypes.windll.user32.MessageBoxW(0, msg, "MiniMark", 0x40)
+        except Exception as e:
+            print("Uninstall error:", e)
+        sys.exit(0)
+
     # 启用高 DPI 缩放
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
     
@@ -123,7 +180,7 @@ def main():
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
 
-    initial_path = sys.argv[1] if len(sys.argv) > 1 else None
+    initial_path = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else None
     window = MiniMarkWindow(initial_path=initial_path)
     window.show()
 
@@ -131,4 +188,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        import ctypes
+        err_trace = traceback.format_exc()
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            f"MiniMark 启动遇到异常：\n\n{err_trace}",
+            "MiniMark 异常捕获",
+            0x10
+        )
+        sys.exit(1)
+

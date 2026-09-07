@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MiniMark</title>
+  <script>
+    window.onerror = function(msg, url, line, col, err) {
+      window.__LAST_ERROR__ = { msg: msg, url: url, line: line, col: col, err: err ? err.stack : null };
+    };
+  </script>
 
   <!-- 本地样式 -->
   <link rel="stylesheet" href="style.css">
@@ -74,6 +79,14 @@
       <button class="icon-btn" onclick="app.toggleSearch(false)" data-i18n-title="search">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+      </button>
+
+      <!-- Windows 应用关联设置 -->
+      <button class="icon-btn" onclick="app.openWindowsIntegrationModal()" id="btn-win-integration" data-i18n-title="winIntegration" title="Windows 应用注册与关联设置">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/>
+          <rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>
         </svg>
       </button>
 
@@ -315,6 +328,50 @@
         <button class="modal-btn" onclick="app.handleSaveConfirmCancel()" data-i18n="cancel">取消</button>
         <button class="modal-btn danger" onclick="app.handleSaveConfirmDontSave()" data-i18n="dontSave">不保存</button>
         <button class="modal-btn primary" onclick="app.handleSaveConfirmSave()" data-i18n="save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Windows 应用程序注册与关联管理模态弹窗 -->
+  <div class="modal-backdrop" id="windows-integration-modal" style="display: none;">
+    <div class="modal-card win-modal-card">
+      <div class="modal-header">
+        <div class="win-modal-title-group">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" color="var(--primary)">
+            <rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/>
+            <rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>
+          </svg>
+          <span class="modal-title" data-i18n="winIntegrationTitle">Windows 应用程序注册与关联管理</span>
+        </div>
+        <button class="icon-btn" style="width: 22px; height: 22px;" onclick="app.closeWindowsIntegrationModal()">✕</button>
+      </div>
+      <div class="modal-body win-modal-body">
+        <div class="win-status-card">
+          <div class="win-status-row">
+            <span class="win-label" data-i18n="regStatusLabel">注册状态：</span>
+            <span class="win-badge" id="win-status-badge">检测中...</span>
+          </div>
+          <div class="win-status-row">
+            <span class="win-label" data-i18n="currentPathLabel">当前运行程序：</span>
+            <span class="win-path" id="win-current-path">-</span>
+          </div>
+          <div class="win-status-row">
+            <span class="win-label" data-i18n="regPathLabel">注册表关联路径：</span>
+            <span class="win-path" id="win-reg-path">-</span>
+          </div>
+          <div class="win-status-row">
+            <span class="win-label" data-i18n="supportedExtsLabel">支持格式关联：</span>
+            <span class="win-exts">.md, .markdown, .mdown, .mkd, .txt</span>
+          </div>
+        </div>
+        <div class="win-tips-desc" data-i18n="winIntegrationDesc">
+          注册后，可在任意 Markdown 文件的右键「打开方式」中找到本应用，并已纳入 Windows 设置「已安装的应用」管理。若移动了软件文件夹，再次启动将自动自愈并更新关联。
+        </div>
+      </div>
+      <div class="modal-footer win-modal-footer">
+        <button class="modal-btn danger" onclick="app.handleManualUnregister()" id="btn-win-unregister" data-i18n="winUnregisterBtn">从注册表中注销 / 卸载</button>
+        <button class="modal-btn primary" onclick="app.handleManualRegister()" id="btn-win-register" data-i18n="winRegisterBtn">重新注册 / 修复关联</button>
+        <button class="modal-btn" onclick="app.closeWindowsIntegrationModal()" data-i18n="close">关闭</button>
       </div>
     </div>
   </div>

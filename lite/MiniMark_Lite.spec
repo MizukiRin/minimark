@@ -1,10 +1,23 @@
-# -*- mode: python ; coding: utf-8 -*-
 import os
+import sys
 
 block_cipher = None
 
 lite_dir = os.path.abspath(SPECPATH)
 markdown_app_dir = os.path.dirname(lite_dir)
+
+# 关键：Conda 环境下 Python C 依赖库位于 Library\bin，必须加入 PATH 并显式打包 DLL (如 libexpat.dll, ffi.dll 等)
+conda_prefix = sys.prefix
+conda_bin = os.path.join(conda_prefix, 'Library', 'bin')
+if os.path.isdir(conda_bin):
+    os.environ["PATH"] = conda_bin + os.pathsep + os.environ.get("PATH", "")
+
+extra_binaries = []
+if os.path.isdir(conda_bin):
+    for f in os.listdir(conda_bin):
+        fl = f.lower()
+        if fl.endswith('.dll') and not fl.startswith('tcl') and not fl.startswith('tk'):
+            extra_binaries.append((os.path.join(conda_bin, f), '.'))
 
 added_files = [
     (os.path.join(markdown_app_dir, 'ui'), 'ui'),
@@ -22,15 +35,14 @@ excluded_modules = [
     'pandas',
     'IPython',
     'unittest',
-    'email',
     'xmlrpc',
     'pydoc'
 ]
 
 a = Analysis(
     [os.path.join(lite_dir, 'main_lite.py')],
-    pathex=[lite_dir, markdown_app_dir],
-    binaries=[],
+    pathex=[lite_dir, markdown_app_dir, conda_bin],
+    binaries=extra_binaries,
     datas=added_files,
     hiddenimports=['clr', 'pythonnet', 'webview', 'webview.platforms.winforms', 'webview.platforms.edgechromium'],
     hookspath=[],
@@ -61,6 +73,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    version=os.path.join(lite_dir, 'version_info_lite.txt'),
     icon=os.path.join(markdown_app_dir, 'assets', 'app.ico'),
 )
 

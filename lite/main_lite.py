@@ -16,7 +16,35 @@ sys.path.insert(0, current_dir)
 sys.path.insert(0, parent_dir)
 
 from backend_lite import MiniMarkLiteBackend
-from core import SystemHelper
+from core import SystemHelper, AppRegistrar
+
+
+def get_resource_path(relative_path: str) -> str:
+    """获取资源文件绝对路径（兼容开发环境、PyInstaller onedir/onefile 打包环境）"""
+    candidates = []
+
+    # 1. PyInstaller 运行环境内部解压/数据目录 (sys._MEIPASS，通常为 _internal)
+    if hasattr(sys, "_MEIPASS"):
+        candidates.append(sys._MEIPASS)
+
+    # 2. 可执行文件同级目录及 _internal 目录
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        candidates.append(exe_dir)
+        candidates.append(os.path.join(exe_dir, "_internal"))
+
+    # 3. 源码开发环境 (包含 parent_dir 与 current_dir)
+    candidates.append(parent_dir)
+    candidates.append(current_dir)
+    candidates.append(os.getcwd())
+
+    for base in candidates:
+        if base:
+            full_path = os.path.abspath(os.path.join(base, relative_path))
+            if os.path.exists(full_path):
+                return full_path
+
+    return os.path.abspath(os.path.join(parent_dir, relative_path))
 
 
 def start_theme_watcher(window):
@@ -39,14 +67,30 @@ def start_theme_watcher(window):
 
 
 def main():
-    initial_path = sys.argv[1] if len(sys.argv) > 1 else None
+    # 命令行快速卸载处理（系统设置 -> 已安装应用中点击卸载时调用）
+    if "--uninstall" in sys.argv or "--unregister" in sys.argv:
+        try:
+            import ctypes
+            success, msg = AppRegistrar.unregister(is_lite=True)
+            ctypes.windll.user32.MessageBoxW(0, msg, "MiniMark Lite", 0x40)
+        except Exception as e:
+            print("Uninstall error:", e)
+        sys.exit(0)
 
-    html_path = os.path.join(parent_dir, "ui", "index.html")
-    ico_path = os.path.join(parent_dir, "assets", "app.ico")
+    initial_path = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else None
 
-    # 规范化文件 URL
+    html_path = get_resource_path(os.path.join("ui", "index.html"))
+    ico_path = get_resource_path(os.path.join("assets", "app.ico"))
+
+    # 规范化文件 URL 并进行异常友好弹窗提示
     if not os.path.exists(html_path):
-        print(f"Error: UI index.html not found at {html_path}")
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            f"未检测到 UI 核心界面文件：\n{html_path}\n\n【重要提示】：\n请勿单独把 exe 拖出！请将整个压缩包解压后，保持 exe 与 _internal 文件夹在同一目录下运行。",
+            "MiniMark Lite 启动错误",
+            0x10
+        )
         sys.exit(1)
 
     backend = MiniMarkLiteBackend()
@@ -67,15 +111,37 @@ def main():
         # 启动主题监听
         start_theme_watcher(window)
 
-        # 若有启动路径参数，触发打开
+        # 异步执行 Windows 应用注册与移动自愈检测（极速 0.1ms，非阻塞）
+        def do_reg_check():
+            time.sleep(0.15)
+            try:
+                import json
+                reg_res = AppRegistrar.check_and_heal(is_lite=True)
+                res_json = json.dumps(reg_res)
+                js_code = f"window.app && window.app.notifyRegistrationResult && window.app.notifyRegistrationResult({res_json});"
+                window.evaluate_js(js_code)
+            except Exception as e:
+                print("Registration check error:", e)
+
+        threading.Thread(target=do_reg_check, daemon=True).start()
+
+        # 若有启动路径参数，异步触发打开（确保 DOMContentLoaded 和 JS bridge 握手就绪）
         if initial_path and os.path.exists(initial_path):
-            abs_path = os.path.abspath(initial_path).replace("\\", "/")
-            if os.path.isdir(initial_path):
-                js_code = f"window.app && window.app.loadWorkspace('{abs_path}');"
-                window.evaluate_js(js_code)
-            elif os.path.isfile(initial_path):
-                js_code = f"window.app && window.app.openFileByPath('{abs_path}');"
-                window.evaluate_js(js_code)
+            def do_open_initial():
+                time.sleep(0.3)
+                try:
+                    import json
+                    abs_path = os.path.abspath(initial_path).replace("\\", "/")
+                    clean_path = json.dumps(abs_path)
+                    if os.path.isdir(initial_path):
+                        js_code = f"window.app && window.app.loadWorkspace && window.app.loadWorkspace({clean_path});"
+                    else:
+                        js_code = f"window.app && window.app.openFileByPath && window.app.openFileByPath({clean_path});"
+                    window.evaluate_js(js_code)
+                except Exception as e:
+                    print("Open initial path error:", e)
+
+            threading.Thread(target=do_open_initial, daemon=True).start()
 
     window.events.loaded += on_loaded
 
@@ -92,4 +158,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        import ctypes
+        err_trace = traceback.format_exc()
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            f"MiniMark Lite 启动遇到异常：\n\n{err_trace}",
+            "MiniMark Lite 异常捕获",
+            0x10
+        )
+        sys.exit(1)
+

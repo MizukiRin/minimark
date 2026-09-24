@@ -140,6 +140,60 @@ class MiniMarkBackend(QObject):
     def reveal_in_explorer(self, target_path: str) -> bool:
         return SystemHelper.reveal_in_explorer(target_path)
 
+    # ==================== 导出渲染文档 (HTML / PDF) ====================
+
+    @Slot(str, str, result=str)
+    def export_html(self, default_name: str, html_content: str) -> str:
+        default_path = os.path.join(self.current_workspace or os.path.expanduser("~"), default_name or "Exported.html")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self.main_window,
+            "导出为 HTML",
+            default_path,
+            "HTML 文件 (*.html *.htm);;所有文件 (*.*)"
+        )
+        if not file_path:
+            return json.dumps({"success": False, "cancelled": True})
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            return json.dumps({"success": True, "path": file_path.replace("\\", "/"), "name": os.path.basename(file_path)})
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e)})
+
+    @Slot(str, result=str)
+    def export_pdf(self, default_name: str) -> str:
+        default_path = os.path.join(self.current_workspace or os.path.expanduser("~"), default_name or "Exported.pdf")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self.main_window,
+            "导出为 PDF",
+            default_path,
+            "PDF 文件 (*.pdf);;所有文件 (*.*)"
+        )
+        if not file_path:
+            return json.dumps({"success": False, "cancelled": True})
+        try:
+            from PySide6.QtGui import QPageLayout, QPageSize
+            from PySide6.QtCore import QMarginsF
+
+            # 黄金比例舒适阅读页边距：上 20mm、下 20mm、左 18mm、右 18mm (A4 纵向)
+            layout = QPageLayout(
+                QPageSize(QPageSize.PageSizeId.A4),
+                QPageLayout.Orientation.Portrait,
+                QMarginsF(18.0, 20.0, 18.0, 20.0),
+                QPageLayout.Unit.Millimeter
+            )
+
+            target_page = getattr(self.main_window, "browser", None)
+            if target_page and hasattr(target_page, "page"):
+                target_page.page().printToPdf(file_path, layout)
+            elif hasattr(self.main_window, "page"):
+                self.main_window.page.printToPdf(file_path, layout)
+            else:
+                return json.dumps({"success": False, "error": "无法获取浏览器页面进行 PDF 渲染"})
+            return json.dumps({"success": True, "path": file_path.replace("\\", "/"), "name": os.path.basename(file_path)})
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e)})
+
     # ==================== Windows 应用注册与关联管理 ====================
 
     @Slot(result=str)
@@ -159,4 +213,5 @@ class MiniMarkBackend(QObject):
         from core import AppRegistrar
         success, msg = AppRegistrar.unregister(is_lite=False, notify_explorer=True)
         return json.dumps({"success": success, "message": msg})
+
 

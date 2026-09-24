@@ -59,7 +59,15 @@ const I18N = {
     copyCode: "复制",
     copied: "已复制",
     unsupportedFile: "不支持打开此类格式文件（仅支持 Markdown / 文本文件）",
-    confirmDelete: "确定要删除该项吗？此操作无法撤销。",
+    confirmDelete: "确定要删除该项吗？该操作将会删除本地文件且无法撤销。",
+    exportHtml: "导出为 HTML (.html)",
+    exportSuccessHtml: "已成功导出 HTML 文件：",
+    exportFailed: "导出失败：",
+    settings: "设置",
+    settingsTitle: "设置",
+    settingsWorkspaceSection: "工作区设置",
+    settingShowUnsupportedFiles: "左侧工作区是否显示非md、txt等不支持打开的文件",
+    settingShowUnsupportedDesc: "关闭后仅显示 Markdown 与文本文件，保持工作区专注整洁；开启后显示全部类型文件。",
     winIntegration: "Windows 应用关联设置",
     winIntegrationTitle: "Windows 应用程序注册与关联管理",
     regStatusLabel: "注册状态：",
@@ -134,7 +142,15 @@ const I18N = {
     copyCode: "Copy",
     copied: "Copied",
     unsupportedFile: "Unsupported file format (Only Markdown / Text files are supported)",
-    confirmDelete: "Are you sure you want to delete this item? This action cannot be undone.",
+    confirmDelete: "Are you sure you want to delete this item? This operation will delete the local file and cannot be undone.",
+    exportHtml: "Export as HTML (.html)",
+    exportSuccessHtml: "Successfully exported HTML file: ",
+    exportFailed: "Export failed: ",
+    settings: "Settings",
+    settingsTitle: "Settings",
+    settingsWorkspaceSection: "Workspace Settings",
+    settingShowUnsupportedFiles: "Show unsupported files (non-md/txt) in left workspace",
+    settingShowUnsupportedDesc: "When turned off, only Markdown and text files are displayed for a cleaner view.",
     winIntegration: "Windows Integration Settings",
     winIntegrationTitle: "Windows App Registration & File Associations",
     regStatusLabel: "Registration Status:",
@@ -194,6 +210,9 @@ class MiniMarkApp {
     this.isSyncingScroll = false;
     this.outlineDebounceTimer = null;
 
+    // 工作区是否显示不支持文件偏好 (默认为 false: 仅显示 md/txt)
+    this.showUnsupportedFiles = localStorage.getItem("minimark_show_unsupported_files") === "true";
+
     // DOM 元素引用
     this.dom = {
       titlebar: document.getElementById("titlebar"),
@@ -236,7 +255,10 @@ class MiniMarkApp {
       statusMode: document.getElementById("status-mode"),
       btnLang: document.getElementById("btn-lang"),
       btnTheme: document.getElementById("btn-theme"),
-      winIntegrationModal: document.getElementById("windows-integration-modal"),
+      btnSettings: document.getElementById("btn-settings"),
+      settingsModal: document.getElementById("settings-modal"),
+      settingToggleUnsupported: document.getElementById("setting-toggle-unsupported"),
+      btnExport: document.getElementById("btn-export"),
       winStatusBadge: document.getElementById("win-status-badge"),
       winCurrentPath: document.getElementById("win-current-path"),
       winRegPath: document.getElementById("win-reg-path"),
@@ -364,6 +386,12 @@ class MiniMarkApp {
       },
       reveal_in_explorer: (path) => {
         api.reveal_in_explorer(path);
+      },
+      export_html: (name, content, cb) => {
+        api.export_html(name, content).then((res) => cb && cb(toResStr(res)));
+      },
+      export_pdf: (name, cb) => {
+        api.export_pdf(name).then((res) => cb && cb(toResStr(res)));
       },
       get_app_registration_info: (cb) => {
         api.get_app_registration_info().then((res) => cb && cb(toResStr(res)));
@@ -930,17 +958,34 @@ if __name__ == "__main__":
     }
   }
 
-  openWindowsIntegrationModal() {
-    if (this.dom.winIntegrationModal) {
-      this.dom.winIntegrationModal.style.display = "flex";
+  openSettingsModal() {
+    if (this.dom.settingsModal) {
+      this.dom.settingsModal.style.display = "flex";
+      if (this.dom.settingToggleUnsupported) {
+        this.dom.settingToggleUnsupported.checked = !!this.showUnsupportedFiles;
+      }
       this.refreshWindowsRegistrationStatus();
     }
   }
 
-  closeWindowsIntegrationModal() {
-    if (this.dom.winIntegrationModal) {
-      this.dom.winIntegrationModal.style.display = "none";
+  closeSettingsModal() {
+    if (this.dom.settingsModal) {
+      this.dom.settingsModal.style.display = "none";
     }
+  }
+
+  handleToggleUnsupportedFiles(checked) {
+    this.showUnsupportedFiles = !!checked;
+    localStorage.setItem("minimark_show_unsupported_files", this.showUnsupportedFiles ? "true" : "false");
+    this.renderFileTree();
+  }
+
+  openWindowsIntegrationModal() {
+    this.openSettingsModal();
+  }
+
+  closeWindowsIntegrationModal() {
+    this.closeSettingsModal();
   }
 
   refreshWindowsRegistrationStatus() {
@@ -1290,6 +1335,240 @@ if __name__ == "__main__":
     }
   }
 
+  // ==================== 导出渲染文档 (HTML) ====================
+
+  handleExportHtml() {
+    const activeTab = this.getActiveTab();
+    if (!activeTab) return;
+
+    const rawTitle = (activeTab.name || "Document").replace(/\.[^/.]+$/, "");
+    const defaultName = `${rawTitle}.html`;
+
+    // 内存中静默解析 Markdown，绝不切换主窗口皮肤或引起闪烁
+    let contentHtml = "";
+    if (window.marked) {
+      try {
+        contentHtml = marked.parse(activeTab.content || "");
+      } catch (e) {
+        contentHtml = activeTab.content || "";
+      }
+    } else {
+      contentHtml = activeTab.content || "";
+    }
+
+    // 将 pre code.language-mermaid 转换为 <div class="mermaid"> 供独立页面自动渲染
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = contentHtml;
+    const mermaidBlocks = tempDiv.querySelectorAll("pre code.language-mermaid");
+    mermaidBlocks.forEach((codeEl) => {
+      const pre = codeEl.parentElement;
+      const codeText = codeEl.textContent;
+      const div = document.createElement("div");
+      div.className = "mermaid";
+      div.textContent = codeText;
+      pre.parentNode.replaceChild(div, pre);
+    });
+
+    const fullHtml = this.buildStandaloneHtml(rawTitle, tempDiv.innerHTML);
+
+    if (!this.backend || !this.backend.export_html) {
+      this.showToast("当前环境暂不支持导出 HTML", "warning");
+      return;
+    }
+
+    this.backend.export_html(defaultName, fullHtml, (resStr) => {
+      try {
+        const res = typeof resStr === "string" ? JSON.parse(resStr) : resStr;
+        if (res && res.success) {
+          const toastMsg = (I18N[this.lang].exportSuccessHtml || "已成功导出 HTML 文件：") + (res.name || defaultName);
+          this.showToast(toastMsg, "info", 4000);
+        } else if (res && !res.cancelled && res.error) {
+          this.showToast((I18N[this.lang].exportFailed || "导出失败：") + res.error, "error");
+        }
+      } catch (err) {
+        console.error("Export HTML callback error:", err);
+      }
+    });
+  }
+
+  buildStandaloneHtml(title, bodyHtml) {
+    return `<!DOCTYPE html>
+<html lang="${this.lang}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-mono: Consolas, "Fira Code", Monaco, "Courier New", monospace;
+    }
+    body {
+      font-family: var(--font-main);
+      line-height: 1.68;
+      color: #24292f;
+      background-color: #ffffff;
+      margin: 0;
+      padding: 40px 20px;
+      display: flex;
+      justify-content: center;
+    }
+    .markdown-body {
+      max-width: 860px;
+      width: 100%;
+      word-wrap: break-word;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 24px;
+      margin-bottom: 16px;
+      font-weight: 600;
+      line-height: 1.25;
+      color: #1f2328;
+    }
+    h1 { font-size: 2em; padding-bottom: .3em; border-bottom: 1px solid #d0d7de; }
+    h2 { font-size: 1.5em; padding-bottom: .3em; border-bottom: 1px solid #d0d7de; }
+    h3 { font-size: 1.25em; }
+    p, ul, ol, dl, table, pre, blockquote {
+      margin-top: 0;
+      margin-bottom: 16px;
+    }
+    a { color: #0969da; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote {
+      padding: 0 1em;
+      color: #57606a;
+      border-left: 4px solid #d0d7de;
+      margin: 0 0 16px 0;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-bottom: 16px;
+      display: block;
+      overflow-x: auto;
+    }
+    table th, table td {
+      border: 1px solid #d0d7de;
+      padding: 8px 14px;
+    }
+    table th {
+      font-weight: 600;
+      background-color: #f6f8fa;
+    }
+    table tr:nth-child(2n) {
+      background-color: #f6f8fa;
+    }
+    code {
+      padding: .2em .4em;
+      margin: 0;
+      font-size: 85%;
+      background-color: #f6f8fa;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+    }
+    pre {
+      padding: 16px;
+      overflow: auto;
+      font-size: 85%;
+      line-height: 1.45;
+      background-color: #f6f8fa;
+      border-radius: 6px;
+    }
+    pre code {
+      background-color: transparent;
+      padding: 0;
+    }
+    hr {
+      height: 2px;
+      padding: 0;
+      margin: 24px 0;
+      background-color: #d0d7de;
+      border: 0;
+    }
+    img {
+      max-width: 100%;
+      border-radius: 4px;
+    }
+    .mermaid {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 20px auto;
+      overflow-x: auto;
+      text-align: center;
+    }
+    .mermaid svg {
+      max-width: 100%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="markdown-body">
+    ${bodyHtml}
+  </div>
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      if (window.renderMathInElement) {
+        renderMathInElement(document.body, {
+          delimiters: [
+            { left: "$$", right: "$$", display: true },
+            { left: "$", right: "$", display: false },
+            { left: "\\\\(", right: "\\\\)", display: false },
+            { left: "\\\\[", right: "\\\\]", display: true }
+          ],
+          throwOnError: false
+        });
+      }
+      if (window.mermaid) {
+        mermaid.initialize({ startOnLoad: true, theme: 'default' });
+      }
+      if (window.Prism) {
+        Prism.highlightAll();
+      }
+    });
+  </script>
+</body>
+</html>`;
+  }
+
+  // ==================== 工作区删除管理 ====================
+
+  handleDeleteWorkspaceItem() {
+    const target = this.contextTarget;
+    this.hideContextMenu();
+    if (!target || !this.backend) return;
+    const targetPath = target.path;
+    const confirmMsg = I18N[this.lang].confirmDelete;
+    if (confirm(confirmMsg)) {
+      this.backend.delete_path(targetPath, (resStr) => {
+        try {
+          const res = typeof resStr === "string" ? JSON.parse(resStr) : resStr;
+          if (res && res.success) {
+            // 若被删除的文件当前正处于某个标签页中打开，自动关闭对应标签页
+            const openTab = this.tabs.find(t => t.path === targetPath);
+            if (openTab) {
+              this.forceCloseTab(openTab.id);
+            }
+            if (this.workspaceData && this.workspaceData.path) {
+              this.loadWorkspace(this.workspaceData.path);
+            }
+          } else if (res && res.error) {
+            this.showToast("删除失败: " + res.error, "error");
+          }
+        } catch (e) {
+          console.error("Delete path error:", e);
+        }
+      });
+    }
+  }
+
   loadWorkspace(folderPath) {
     if (!this.backend || !this.backend.get_folder_tree) {
       setTimeout(() => this.loadWorkspace(folderPath), 100);
@@ -1397,12 +1676,21 @@ if __name__ == "__main__":
     // 2. 渲染文件夹树结构
     if (this.workspaceData.children) {
       this.workspaceData.children.forEach(item => {
-        treeEl.appendChild(this.createTreeNodeElement(item));
+        const nodeEl = this.createTreeNodeElement(item);
+        if (nodeEl) treeEl.appendChild(nodeEl);
       });
     }
   }
 
   createTreeNodeElement(item) {
+    // 若设置不显示不支持的文件，则在工作区目录树中过滤掉非 md/txt 文件
+    if (!item.isDir && !this.showUnsupportedFiles) {
+      const ext = item.ext ? item.ext.toLowerCase() : "";
+      if (!SUPPORTED_EXTENSIONS.includes(ext)) {
+        return null;
+      }
+    }
+
     const container = document.createElement("div");
 
     const nodeEl = document.createElement("div");
@@ -1467,7 +1755,8 @@ if __name__ == "__main__":
       childrenContainer.className = "tree-children";
       if (item.children) {
         item.children.forEach(child => {
-          childrenContainer.appendChild(this.createTreeNodeElement(child));
+          const childEl = this.createTreeNodeElement(child);
+          if (childEl) childrenContainer.appendChild(childEl);
         });
       }
 
@@ -2336,6 +2625,13 @@ sequenceDiagram
     this.initScrollSync();
     this.initSplitterDrag();
 
+    if (this.dom.settingsModal) {
+      this.dom.settingsModal.addEventListener("click", (e) => {
+        if (e.target === this.dom.settingsModal) {
+          this.closeSettingsModal();
+        }
+      });
+    }
     if (this.dom.winIntegrationModal) {
       this.dom.winIntegrationModal.addEventListener("click", (e) => {
         if (e.target === this.dom.winIntegrationModal) {
@@ -2381,6 +2677,11 @@ sequenceDiagram
 
       if (e.key === "Escape" && this.dom.saveConfirmModal && this.dom.saveConfirmModal.style.display !== "none") {
         this.hideSaveConfirmDialog();
+        return;
+      }
+
+      if (e.key === "Escape" && this.dom.settingsModal && this.dom.settingsModal.style.display !== "none") {
+        this.closeSettingsModal();
         return;
       }
 

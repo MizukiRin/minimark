@@ -118,15 +118,30 @@ class WorkspaceManager:
 
     @classmethod
     def delete_path(cls, target_path: str) -> dict:
-        """删除指定文件或文件夹"""
+        """删除指定文件或文件夹（优先移入 Windows 回收站，以便可还原查看）"""
         try:
             target_path = os.path.abspath(target_path)
             if not os.path.exists(target_path):
                 return {"success": False, "error": "目标路径不存在"}
+
+            # 1. 优先调用 Windows 原生 API 将文件/文件夹移入回收站
+            from core.system_helper import SystemHelper
+            if SystemHelper.move_to_trash(target_path):
+                return {
+                    "success": True,
+                    "path": target_path.replace("\\", "/"),
+                    "inRecycleBin": True
+                }
+
+            # 2. 若系统移入回收站未支持（例如网络映射驱动器），降级执行物理删除
             if os.path.isdir(target_path):
                 shutil.rmtree(target_path)
             else:
                 os.remove(target_path)
-            return {"success": True, "path": target_path.replace("\\", "/")}
+            return {
+                "success": True,
+                "path": target_path.replace("\\", "/"),
+                "inRecycleBin": False
+            }
         except Exception as e:
             return {"success": False, "error": str(e)}

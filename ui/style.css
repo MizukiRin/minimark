@@ -1495,5 +1495,300 @@ mark.search-highlight.active-match {
   padding: 12px 20px 16px;
 }
 
+/* ==================== 导出下拉菜单 (Export Dropdown) ==================== */
+.export-dropdown-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
 
+.export-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 170px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--context-shadow);
+  border-radius: 8px;
+  padding: 6px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 
+.export-menu .dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--text-main);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  user-select: none;
+}
+
+.export-menu .dropdown-item:hover {
+  background-color: var(--bg-hover);
+  color: var(--primary);
+}
+
+.export-menu .dropdown-item svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.export-menu .dropdown-item:hover svg {
+  color: var(--primary);
+}
+
+/* ==================== 设置中心模态弹窗 (Settings Modal) ==================== */
+.settings-modal-card {
+  width: 520px;
+  max-width: 92vw;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--floating-shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-modal-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 75vh;
+  overflow-y: auto;
+}
+
+.settings-section {
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-section-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.settings-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.settings-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+  line-height: 1.4;
+}
+
+.settings-item-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.settings-btn-group {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* Fluent / iOS 风格平滑切换开关 (Switch Toggle) */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--border-subtle);
+  border: 1px solid var(--border-color);
+  transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 22px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: #ffffff;
+  transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.switch input:checked + .slider {
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+
+.switch input:checked + .slider:before {
+  transform: translateX(16px);
+}
+
+/* ==================== 打印与 PDF 导出专用样式 (@media print) ==================== */
+@page {
+  size: A4 portrait;
+  margin: 20mm 18mm 20mm 18mm;
+}
+
+@media print {
+  :root,
+  html,
+  body,
+  body[data-theme="dark"],
+  body[data-theme="light"],
+  .main-body,
+  .content-panes,
+  .preview-container,
+  .preview-content,
+  .markdown-body {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    --bg-app: #ffffff !important;
+    --bg-container: #ffffff !important;
+    --bg-surface: #ffffff !important;
+    --bg-card: #f9fafb !important;
+    --bg-code: #f3f4f6 !important;
+    --text-main: #111827 !important;
+    --text-muted: #4b5563 !important;
+    --border-main: #e5e7eb !important;
+    --border-subtle: #f3f4f6 !important;
+  }
+
+  body {
+    height: auto !important;
+    width: 100% !important;
+    overflow: visible !important;
+  }
+
+  .titlebar,
+  .sidebar,
+  .panes-splitter,
+  .editor-container,
+  .statusbar,
+  .floating-tools,
+  .modal-backdrop,
+  .context-menu,
+  .search-panel,
+  .toast-container,
+  .export-dropdown-wrapper {
+    display: none !important;
+  }
+
+  .main-body,
+  .content-panes,
+  .preview-container {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+  }
+
+  .preview-content {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    color: #111827 !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    font-size: 14.5px !important;
+    line-height: 1.75 !important;
+  }
+
+  pre, blockquote, table, img, .mermaid {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+    break-after: avoid;
+    color: #111827 !important;
+  }
+
+  a {
+    color: #0969da !important;
+    text-decoration: none !important;
+  }
+
+  code, pre {
+    border: 1px solid #e5e7eb !important;
+    background-color: #f6f8fa !important;
+    color: #111827 !important;
+  }
+
+  .mermaid {
+    text-align: center !important;
+    margin: 20px auto !important;
+    background: transparent !important;
+    border: none !important;
+  }
+
+  .mermaid svg {
+    max-width: 100% !important;
+    height: auto !important;
+    background-color: transparent !important;
+  }
+
+  body[data-theme="dark"] .mermaid svg {
+    filter: invert(0.92) hue-rotate(180deg);
+  }
+}

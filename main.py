@@ -7,7 +7,7 @@ MiniMark - 极简 Windows 桌面 Markdown 编辑与查看器
 import sys
 import os
 from pathlib import Path
-from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QMessageBox
 from PySide6.QtCore import QUrl, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -25,11 +25,11 @@ def get_resource_path(relative_path):
     if hasattr(sys, "_MEIPASS"):
         candidates.append(sys._MEIPASS)
 
-    # 2. 可执行文件同级目录及 _internal 目录
+    # 2. 可执行文件同级目录及 _internal 目录（优先 _internal，确保更新覆盖时不被旧根目录文件干扰）
     if getattr(sys, "frozen", False):
         exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-        candidates.append(exe_dir)
         candidates.append(os.path.join(exe_dir, "_internal"))
+        candidates.append(exe_dir)
 
     # 3. 源码开发环境
     base_path = os.path.dirname(os.path.abspath(__file__))
@@ -47,11 +47,24 @@ def get_resource_path(relative_path):
 
 
 class CustomWebEnginePage(QWebEnginePage):
-    """自定义 WebEnginePage 以支持 JS 控制台输出调试"""
+    """自定义 WebEnginePage 以支持 JS 控制台输出与原生弹窗本地化定制"""
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
         # 如需在终端查看前端 log 可开启
         # print(f"[JS {level.name}] {message} ({sourceID}:{lineNumber})")
         pass
+
+    def javaScriptConfirm(self, securityOrigin, msg):
+        """定制系统原生确认弹窗，统一窗口标题为 MiniMark 并显示中文确定/取消按钮"""
+        parent = QApplication.activeWindow()
+        msg_box = QMessageBox(parent)
+        msg_box.setWindowTitle("MiniMark")
+        msg_box.setText(msg)
+        msg_box.setIcon(QMessageBox.Icon.Question)
+        btn_ok = msg_box.addButton("确定", QMessageBox.ButtonRole.AcceptRole)
+        btn_cancel = msg_box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        msg_box.setDefaultButton(btn_cancel)
+        msg_box.exec()
+        return msg_box.clickedButton() == btn_ok
 
 
 class MiniMarkWindow(QMainWindow):

@@ -10,8 +10,13 @@
     };
   </script>
 
+  <!-- 禁用缓存，确保更新即时生效 -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+
   <!-- 本地样式 -->
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2.2.0-r2">
 
   <!-- 本地 KaTeX 样式与脚本 -->
   <link rel="stylesheet" href="libs/katex/katex.min.css">
@@ -75,6 +80,15 @@
         </svg>
       </button>
 
+      <!-- 导出为 HTML (.html) -->
+      <button class="icon-btn" onclick="app.handleExportHtml()" id="btn-export" data-i18n-title="exportHtml" title="导出为 HTML (.html)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+      </button>
+
       <!-- 搜索文本 -->
       <button class="icon-btn" onclick="app.toggleSearch(false)" data-i18n-title="search">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -82,11 +96,11 @@
         </svg>
       </button>
 
-      <!-- Windows 应用关联设置 -->
-      <button class="icon-btn" onclick="app.openWindowsIntegrationModal()" id="btn-win-integration" data-i18n-title="winIntegration" title="Windows 应用注册与关联设置">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-          <rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/>
-          <rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>
+      <!-- 设置中心 (含工作区显示配置与 Windows 注册表管理) -->
+      <button class="icon-btn" onclick="app.openSettingsModal()" id="btn-settings" data-i18n-title="settings" title="设置">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
         </svg>
       </button>
 
@@ -332,46 +346,67 @@
     </div>
   </div>
 
-  <!-- Windows 应用程序注册与关联管理模态弹窗 -->
-  <div class="modal-backdrop" id="windows-integration-modal" style="display: none;">
-    <div class="modal-card win-modal-card">
+  <!-- 设置中心模态弹窗 (包含工作区显示偏好与 Windows 系统关联管理) -->
+  <div class="modal-backdrop" id="settings-modal" style="display: none;">
+    <div class="modal-card settings-modal-card">
       <div class="modal-header">
-        <div class="win-modal-title-group">
+        <div class="settings-modal-title-group">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" color="var(--primary)">
-            <rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/>
-            <rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
           </svg>
-          <span class="modal-title" data-i18n="winIntegrationTitle">Windows 应用程序注册与关联管理</span>
+          <span class="modal-title" data-i18n="settingsTitle">设置</span>
         </div>
-        <button class="icon-btn" style="width: 22px; height: 22px;" onclick="app.closeWindowsIntegrationModal()">✕</button>
+        <button class="icon-btn" style="width: 22px; height: 22px;" onclick="app.closeSettingsModal()">✕</button>
       </div>
-      <div class="modal-body win-modal-body">
-        <div class="win-status-card">
-          <div class="win-status-row">
-            <span class="win-label" data-i18n="regStatusLabel">注册状态：</span>
-            <span class="win-badge" id="win-status-badge">检测中...</span>
-          </div>
-          <div class="win-status-row">
-            <span class="win-label" data-i18n="currentPathLabel">当前运行程序：</span>
-            <span class="win-path" id="win-current-path">-</span>
-          </div>
-          <div class="win-status-row">
-            <span class="win-label" data-i18n="regPathLabel">注册表关联路径：</span>
-            <span class="win-path" id="win-reg-path">-</span>
-          </div>
-          <div class="win-status-row">
-            <span class="win-label" data-i18n="supportedExtsLabel">支持格式关联：</span>
-            <span class="win-exts">.md, .markdown, .mdown, .mkd, .txt</span>
+      <div class="modal-body settings-modal-body">
+        <!-- 分区 1: 工作区设置 -->
+        <div class="settings-section">
+          <div class="settings-section-header" data-i18n="settingsWorkspaceSection">工作区设置</div>
+          <div class="settings-item-row">
+            <div class="settings-item-info">
+              <div class="settings-item-title" data-i18n="settingShowUnsupportedFiles">左侧工作区是否显示非md、txt等不支持打开的文件</div>
+              <div class="settings-item-desc" data-i18n="settingShowUnsupportedDesc">关闭后仅显示 Markdown 与文本文件，保持工作区专注整洁；开启后显示全部类型文件。</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-toggle-unsupported" onchange="app.handleToggleUnsupportedFiles(this.checked)">
+              <span class="slider"></span>
+            </label>
           </div>
         </div>
-        <div class="win-tips-desc" data-i18n="winIntegrationDesc">
-          注册后，可在任意 Markdown 文件的右键「打开方式」中找到本应用，并已纳入 Windows 设置「已安装的应用」管理。若移动了软件文件夹，再次启动将自动自愈并更新关联。
+
+        <!-- 分区 2: Windows 应用程序注册与关联管理 -->
+        <div class="settings-section">
+          <div class="settings-section-header" data-i18n="winIntegrationTitle">Windows 应用程序注册与关联管理</div>
+          <div class="win-status-card">
+            <div class="win-status-row">
+              <span class="win-label" data-i18n="regStatusLabel">注册状态：</span>
+              <span class="win-badge" id="win-status-badge">检测中...</span>
+            </div>
+            <div class="win-status-row">
+              <span class="win-label" data-i18n="currentPathLabel">当前运行程序：</span>
+              <span class="win-path" id="win-current-path">-</span>
+            </div>
+            <div class="win-status-row">
+              <span class="win-label" data-i18n="regPathLabel">注册表关联路径：</span>
+              <span class="win-path" id="win-reg-path">-</span>
+            </div>
+            <div class="win-status-row">
+              <span class="win-label" data-i18n="supportedExtsLabel">支持格式关联：</span>
+              <span class="win-exts">.md, .markdown, .mdown, .mkd, .txt</span>
+            </div>
+          </div>
+          <div class="win-tips-desc" data-i18n="winIntegrationDesc">
+            注册后，可在任意 Markdown 文件的右键「打开方式」中找到本应用，并已纳入 Windows 设置「已安装的应用」管理。若移动了软件文件夹，再次启动将自动自愈并更新关联。
+          </div>
+          <div class="settings-btn-group">
+            <button class="modal-btn danger" onclick="app.handleManualUnregister()" id="btn-win-unregister" data-i18n="winUnregisterBtn">从注册表中注销 / 卸载</button>
+            <button class="modal-btn primary" onclick="app.handleManualRegister()" id="btn-win-register" data-i18n="winRegisterBtn">重新注册 / 修复关联</button>
+          </div>
         </div>
       </div>
-      <div class="modal-footer win-modal-footer">
-        <button class="modal-btn danger" onclick="app.handleManualUnregister()" id="btn-win-unregister" data-i18n="winUnregisterBtn">从注册表中注销 / 卸载</button>
-        <button class="modal-btn primary" onclick="app.handleManualRegister()" id="btn-win-register" data-i18n="winRegisterBtn">重新注册 / 修复关联</button>
-        <button class="modal-btn" onclick="app.closeWindowsIntegrationModal()" data-i18n="close">关闭</button>
+      <div class="modal-footer">
+        <button class="modal-btn" onclick="app.closeSettingsModal()" data-i18n="close">关闭</button>
       </div>
     </div>
   </div>
@@ -387,7 +422,7 @@
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
       <span data-i18n="ctxReveal">在资源管理器中打开</span>
     </div>
-    <div class="context-menu-item" onclick="if(app.contextTarget && backend && confirm(I18N[app.lang].confirmDelete)) { backend.delete_path(app.contextTarget.path, (res)=>{ app.loadWorkspace(app.workspaceData.path); }); } app.hideContextMenu();">
+    <div class="context-menu-item" onclick="app.handleDeleteWorkspaceItem();">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" color="#ef4444"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
       <span style="color:#ef4444;" data-i18n="ctxDelete">删除</span>
     </div>
@@ -408,6 +443,6 @@
   </div>
 
   <!-- 应用业务逻辑 -->
-  <script src="app.js"></script>
+  <script src="app.js?v=2.2.0-r2"></script>
 </body>
 </html>

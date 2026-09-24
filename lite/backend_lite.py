@@ -147,4 +147,31 @@ class MiniMarkLiteBackend:
     def reveal_in_explorer(self, target_path: str) -> bool:
         return SystemHelper.reveal_in_explorer(target_path)
 
+    # ==================== 导出渲染文档 (HTML / PDF) ====================
+
+    def export_html(self, default_name: str, html_content: str) -> dict:
+        """弹出另存为对话框并保存 HTML"""
+        if not self._window:
+            return {"success": False, "error": "窗口未初始化"}
+
+        try:
+            result = self._window.create_file_dialog(
+                FileDialog.SAVE,
+                directory=self._current_workspace or os.path.expanduser("~"),
+                save_filename=default_name or "Exported.html",
+                file_types=('HTML 文件 (*.html;*.htm)', '所有文件 (*.*)')
+            )
+            if not result:
+                return {"success": False, "cancelled": True}
+
+            file_path = result if isinstance(result, str) else result[0]
+            if not file_path.lower().endswith((".html", ".htm")):
+                file_path += ".html"
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            return {"success": True, "path": file_path.replace("\\", "/"), "name": os.path.basename(file_path)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+
 

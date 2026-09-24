@@ -27,11 +27,11 @@ def get_resource_path(relative_path: str) -> str:
     if hasattr(sys, "_MEIPASS"):
         candidates.append(sys._MEIPASS)
 
-    # 2. 可执行文件同级目录及 _internal 目录
+    # 2. 可执行文件同级目录及 _internal 目录（优先 _internal，确保更新覆盖时不被旧根目录文件干扰）
     if getattr(sys, "frozen", False):
         exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-        candidates.append(exe_dir)
         candidates.append(os.path.join(exe_dir, "_internal"))
+        candidates.append(exe_dir)
 
     # 3. 源码开发环境 (包含 parent_dir 与 current_dir)
     candidates.append(parent_dir)
@@ -118,7 +118,15 @@ def main():
                 import json
                 reg_res = AppRegistrar.check_and_heal(is_lite=True)
                 res_json = json.dumps(reg_res)
-                js_code = f"window.app && window.app.notifyRegistrationResult && window.app.notifyRegistrationResult({res_json});"
+                js_code = f"""
+                (function notifyWhenReady(retries) {{
+                    if (window.app && window.app.notifyRegistrationResult) {{
+                        window.app.notifyRegistrationResult({res_json});
+                    }} else if (retries > 0) {{
+                        setTimeout(function() {{ notifyWhenReady(retries - 1); }}, 100);
+                    }}
+                }})(30);
+                """
                 window.evaluate_js(js_code)
             except Exception as e:
                 print("Registration check error:", e)
@@ -128,15 +136,31 @@ def main():
         # 若有启动路径参数，异步触发打开（确保 DOMContentLoaded 和 JS bridge 握手就绪）
         if initial_path and os.path.exists(initial_path):
             def do_open_initial():
-                time.sleep(0.3)
+                time.sleep(0.2)
                 try:
                     import json
                     abs_path = os.path.abspath(initial_path).replace("\\", "/")
                     clean_path = json.dumps(abs_path)
                     if os.path.isdir(initial_path):
-                        js_code = f"window.app && window.app.loadWorkspace && window.app.loadWorkspace({clean_path});"
+                        js_code = f"""
+                        (function openDirWhenReady(retries) {{
+                            if (window.app && window.app.loadWorkspace) {{
+                                window.app.loadWorkspace({clean_path});
+                            }} else if (retries > 0) {{
+                                setTimeout(function() {{ openDirWhenReady(retries - 1); }}, 100);
+                            }}
+                        }})(30);
+                        """
                     else:
-                        js_code = f"window.app && window.app.openFileByPath && window.app.openFileByPath({clean_path});"
+                        js_code = f"""
+                        (function openFileWhenReady(retries) {{
+                            if (window.app && window.app.openFileByPath) {{
+                                window.app.openFileByPath({clean_path});
+                            }} else if (retries > 0) {{
+                                setTimeout(function() {{ openFileWhenReady(retries - 1); }}, 100);
+                            }}
+                        }})(30);
+                        """
                     window.evaluate_js(js_code)
                 except Exception as e:
                     print("Open initial path error:", e)

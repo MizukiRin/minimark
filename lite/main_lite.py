@@ -6,6 +6,7 @@ MiniMark Lite - 极简 Windows 桌面 Markdown 编辑与查看器 (pywebview + E
 import os
 import sys
 import time
+import shutil
 import threading
 import webview
 
@@ -182,6 +183,9 @@ def main():
     # 本地数据持久化目录
     storage_path = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "MiniMark_Lite")
 
+    _clear_stale_webview_cache(storage_path)
+    _enable_no_cache_static_responses()
+
     webview.start(
         gui="edgechromium",
         private_mode=False,
@@ -189,6 +193,36 @@ def main():
         icon=ico_path if os.path.exists(ico_path) else None,
         debug=False
     )
+
+
+def _clear_stale_webview_cache(storage_path: str):
+    """清理 WebView2 HTTP 磁盘缓存与代码缓存，保留 Local Storage 等用户数据"""
+    profile_dir = os.path.join(storage_path, "EBWebView", "Default")
+    for cache_folder in ("Cache", "Code Cache"):
+        target = os.path.join(profile_dir, cache_folder)
+        if os.path.isdir(target):
+            shutil.rmtree(target, ignore_errors=True)
+
+
+def _enable_no_cache_static_responses():
+    """修正 pywebview BottleServer 中 bottle.static_file 忽略 bottle.response 缓存头的问题"""
+    import bottle
+    if getattr(bottle.static_file, "_minimark_no_cache", False):
+        return
+    orig_static_file = bottle.static_file
+
+    def _no_cache_static_file(*args, **kwargs):
+        headers = dict(kwargs.get("headers") or {})
+        headers.setdefault("Cache-Control", "no-cache, no-store, must-revalidate")
+        headers.setdefault("Pragma", "no-cache")
+        headers.setdefault("Expires", "0")
+        kwargs["headers"] = headers
+        if kwargs.get("etag") is None:
+            kwargs["etag"] = False
+        return orig_static_file(*args, **kwargs)
+
+    _no_cache_static_file._minimark_no_cache = True
+    bottle.static_file = _no_cache_static_file
 
 
 if __name__ == "__main__":

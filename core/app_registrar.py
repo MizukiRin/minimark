@@ -16,7 +16,7 @@ class AppRegistrar:
     """Windows 应用程序注册与关联管理器"""
 
     SUPPORTED_EXTENSIONS = [".md", ".markdown", ".mdown", ".mkd", ".txt"]
-    VERSION = "2.2.1"
+    VERSION = "2.2.2"
     PUBLISHER = "MizukiRin"
 
     @classmethod

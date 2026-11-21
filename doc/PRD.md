@@ -152,6 +152,11 @@ markdown_app/
 
 ## 6. 全版本迭代演进与变更历史 (Changelog)
 
+### [v2.2.2 Release] - 2026-11-21 (MiniMark Lite WebView2 缓存穿透修复)
+- **[修复] MiniMark Lite 跨版本升级后加载旧版 WebView2 磁盘缓存**：
+  1. 修复 `pywebview` `BottleServer` 调用 `bottle.static_file()` 时忽略 `bottle.response` 缓存头导致本地 `127.0.0.1:42001` 资源缺失 `Cache-Control` 的问题，强制注入 `no-cache, no-store, must-revalidate`；
+  2. 在 `MiniMark Lite` 启动初始化 `WebView2` 前自动清理 `%LOCALAPPDATA%\MiniMark_Lite\EBWebView\Default` 下的 `Cache` 与 `Code Cache`（完整保留 `Local Storage` 中的最近文件、目录及用户设置），彻底杜绝版本更新后继续命中旧版 `index.html` 缓存的问题。
+
 ### [v2.2.1 Release] - 2026-11-21 (查看模式鼠标选择复制、右键菜单与打开/切换稳定性优化)
 - **[新增] 查看模式鼠标选择与右键复制 / 全选支持**：
   1. 修复预览区子节点受全局 `user-select: none` 限制导致无法划词选中的问题，启用 `::selection` 主题高亮与链接/图片防误拖拽；

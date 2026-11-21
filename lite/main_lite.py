@@ -47,12 +47,11 @@ def get_resource_path(relative_path: str) -> str:
     return os.path.abspath(os.path.join(parent_dir, relative_path))
 
 
-def start_theme_watcher(window):
+def start_theme_watcher(window, stop_event):
     """后台监听 Windows 系统深浅色主题变化并分发事件到前端"""
     def worker():
         last_theme = SystemHelper.get_system_theme()
-        while True:
-            time.sleep(1.0)
+        while not stop_event.wait(1.0):
             try:
                 current_theme = SystemHelper.get_system_theme()
                 if current_theme != last_theme:
@@ -107,9 +106,19 @@ def main():
     )
     backend.set_window(window)
 
+    stop_event = threading.Event()
+    loaded_once = {"done": False}
+
+    def on_closed():
+        stop_event.set()
+
     def on_loaded():
+        if loaded_once["done"]:
+            return
+        loaded_once["done"] = True
+
         # 启动主题监听
-        start_theme_watcher(window)
+        start_theme_watcher(window, stop_event)
 
         # 异步执行 Windows 应用注册与移动自愈检测（极速 0.1ms，非阻塞）
         def do_reg_check():
@@ -168,6 +177,7 @@ def main():
             threading.Thread(target=do_open_initial, daemon=True).start()
 
     window.events.loaded += on_loaded
+    window.events.closed += on_closed
 
     # 本地数据持久化目录
     storage_path = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "MiniMark_Lite")

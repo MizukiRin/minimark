@@ -7,6 +7,7 @@ MiniMark Lite - pywebview Backend Bridge
 import os
 import sys
 import json
+import threading
 import webview
 from webview import FileDialog
 
@@ -21,9 +22,47 @@ class MiniMarkLiteBackend:
     def __init__(self):
         self._window = None
         self._current_workspace = ""
+        self._dialog_lock = threading.Lock()
 
     def set_window(self, window):
         self._window = window
+
+    def _run_file_dialog(self, *args, **kwargs):
+        """
+        在 WinForms STA UI 线程上安全调用原生文件/目录选择对话框。
+        pywebview 的 js_api 默认在后台线程运行，直接跨线程调用 ShowDialog(owner)
+        容易触发 Windows COM STA/MTA 死锁或二次打开卡死。
+        """
+        if not self._window:
+            return None
+        with self._dialog_lock:
+            shown_event = getattr(getattr(self._window, "events", None), "shown", None)
+            if shown_event is not None:
+                shown_event.wait(timeout=5.0)
+
+            native = getattr(self._window, "native", None)
+            if (
+                native is not None
+                and getattr(native, "InvokeRequired", False)
+                and not getattr(native, "IsDisposed", False)
+            ):
+                from System import Action
+
+                result_box = [None]
+                error_box = [None]
+
+                def _invoke_dialog():
+                    try:
+                        result_box[0] = self._window.create_file_dialog(*args, **kwargs)
+                    except Exception as exc:
+                        error_box[0] = exc
+
+                native.Invoke(Action(_invoke_dialog))
+                if error_box[0] is not None:
+                    raise error_box[0]
+                return result_box[0]
+
+            return self._window.create_file_dialog(*args, **kwargs)
 
     # ==================== 系统主题、注册与环境 ====================
 
@@ -67,7 +106,7 @@ class MiniMarkLiteBackend:
             return {"success": False, "error": "窗口未初始化"}
 
         try:
-            result = self._window.create_file_dialog(
+            result = self._run_file_dialog(
                 FileDialog.OPEN,
                 directory=self._current_workspace or os.path.expanduser("~"),
                 allow_multiple=False,
@@ -93,7 +132,7 @@ class MiniMarkLiteBackend:
             return {"success": False, "error": "窗口未初始化"}
 
         try:
-            result = self._window.create_file_dialog(
+            result = self._run_file_dialog(
                 FileDialog.SAVE,
                 directory=self._current_workspace or os.path.expanduser("~"),
                 save_filename=default_name or "Untitled.md",
@@ -115,7 +154,7 @@ class MiniMarkLiteBackend:
             return {"success": False, "error": "窗口未初始化"}
 
         try:
-            result = self._window.create_file_dialog(
+            result = self._run_file_dialog(
                 FileDialog.FOLDER,
                 directory=self._current_workspace or os.path.expanduser("~")
             )
@@ -155,7 +194,7 @@ class MiniMarkLiteBackend:
             return {"success": False, "error": "窗口未初始化"}
 
         try:
-            result = self._window.create_file_dialog(
+            result = self._run_file_dialog(
                 FileDialog.SAVE,
                 directory=self._current_workspace or os.path.expanduser("~"),
                 save_filename=default_name or "Exported.html",

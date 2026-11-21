@@ -3,8 +3,8 @@
 # Windows Version Info for MiniMark Lite
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(2, 2, 0, 0),
-    prodvers=(2, 2, 0, 0),
+    filevers=(2, 2, 1, 0),
+    prodvers=(2, 2, 1, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -19,12 +19,12 @@ VSVersionInfo(
         '080404b0',
         [StringStruct('CompanyName', 'MizukiRin'),
         StringStruct('FileDescription', 'MiniMark Lite - 极简 Markdown 编辑与查看器 (轻量版)'),
-        StringStruct('FileVersion', '2.2.0.0'),
+        StringStruct('FileVersion', '2.2.1.0'),
         StringStruct('InternalName', 'MiniMark_Lite'),
         StringStruct('LegalCopyright', 'Copyright (C) 2026 MizukiRin. All rights reserved.'),
         StringStruct('OriginalFilename', 'MiniMark_Lite.exe'),
         StringStruct('ProductName', 'MiniMark Lite'),
-        StringStruct('ProductVersion', '2.2.0.0')])
+        StringStruct('ProductVersion', '2.2.1.0')])
       ]), 
     VarFileInfo([VarStruct('Translation', [2052, 1200])])
   ]

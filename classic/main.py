@@ -59,6 +59,7 @@ class MiniMarkWindow(QMainWindow):
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.ScrollAnimatorEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, True)
 
         # 注册 QtWebChannel 与 Python 后端
         self.channel = QWebChannel(self)

@@ -52,6 +52,8 @@ const I18N = {
     ctxRename: "重命名",
     ctxDelete: "删除",
     ctxReveal: "在资源管理器中打开",
+    ctxCopy: "复制",
+    ctxSelectAll: "全选",
     statusLines: "行",
     statusWords: "字",
     statusChars: "字符",
@@ -135,6 +137,8 @@ const I18N = {
     ctxRename: "Rename",
     ctxDelete: "Delete",
     ctxReveal: "Reveal in File Explorer",
+    ctxCopy: "Copy",
+    ctxSelectAll: "Select All",
     statusLines: "Lines",
     statusWords: "Words",
     statusChars: "Chars",
@@ -206,9 +210,20 @@ class MiniMarkApp {
       currentIndex: -1
     };
 
-    // 滚动同步标志
+    // 滚动同步标志与并发/防抖状态
     this.isSyncingScroll = false;
     this.outlineDebounceTimer = null;
+    this.renderDebounceTimer = null;
+    this.previewContextRange = null;
+    this.previewContextSelectedText = "";
+    this.lastFocusedPane = "preview";
+    this.pendingOpenPaths = new Set();
+    this.latestOpenSeq = 0;
+    this.workspaceLoadSeq = 0;
+    this.pendingWorkspacePath = null;
+    this.expandedDirs = new Set();
+    this.currentRenderSeq = 0;
+    this.renderedKey = null;
 
     // 工作区是否显示不支持文件偏好 (默认为 false: 仅显示 md/txt)
     this.showUnsupportedFiles = localStorage.getItem("minimark_show_unsupported_files") === "true";
@@ -249,6 +264,9 @@ class MiniMarkApp {
       saveConfirmModal: document.getElementById("save-confirm-modal"),
       saveConfirmMessage: document.getElementById("save-confirm-message"),
       contextMenu: document.getElementById("context-menu"),
+      previewContextMenu: document.getElementById("preview-context-menu"),
+      ctxPreviewCopy: document.getElementById("ctx-preview-copy"),
+      ctxPreviewSelectAll: document.getElementById("ctx-preview-select-all"),
       statusPath: document.getElementById("status-path"),
       statusEncoding: document.getElementById("status-encoding"),
       statusStats: document.getElementById("status-stats"),
@@ -479,6 +497,7 @@ class MiniMarkApp {
   // ==================== 主页 Dashboard 渲染 ====================
 
   showHomeDashboard() {
+    this.hidePreviewContextMenu();
     this.activeTabId = null;
     this.dom.contentPanes.style.display = "none";
     this.dom.modeCapsule.style.display = "none";
@@ -574,7 +593,9 @@ class MiniMarkApp {
 
   setMode(mode, e) {
     if (e) e.stopPropagation();
+    this.hidePreviewContextMenu();
     this.mode = mode;
+    this.lastFocusedPane = mode === "edit" ? "editor" : "preview";
 
     this.dom.btnModeEdit.classList.toggle("active", mode === "edit");
     this.dom.btnModeSplit.classList.toggle("active", mode === "split");
@@ -598,7 +619,7 @@ class MiniMarkApp {
           <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/>
         </svg>
       `;
-      this.renderCurrentMarkdown();
+      this.renderCurrentMarkdownIfNeeded();
     } else { // preview
       this.dom.editorContainer.style.display = "none";
       this.dom.panesSplitter.style.display = "none";
@@ -608,7 +629,7 @@ class MiniMarkApp {
           <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
         </svg>
       `;
-      this.renderCurrentMarkdown();
+      this.renderCurrentMarkdownIfNeeded();
     }
 
     this.closeCapsule();
@@ -629,13 +650,21 @@ class MiniMarkApp {
   // ==================== 主题与多语言 ====================
 
   setTheme(theme) {
+    const prevTheme = this.theme;
     this.theme = theme;
     document.body.setAttribute("data-theme", theme);
     if (window.mermaid) {
       mermaid.initialize({
-        theme: theme === "dark" ? "dark" : "default"
+        startOnLoad: false,
+        theme: theme === "dark" ? "dark" : "default",
+        securityLevel: "loose"
       });
-      this.renderCurrentMarkdown();
+      if (prevTheme !== theme && this.activeTabId) {
+        this.renderedKey = null;
+        if (this.mode !== "edit") {
+          this.renderCurrentMarkdown();
+        }
+      }
     }
   }
 
@@ -674,6 +703,13 @@ class MiniMarkApp {
     this.renderOutline();
     this.renderHomeRecents();
     this.updateStatusBar();
+
+    if (this.dom.previewContent) {
+      this.dom.previewContent.querySelectorAll(".code-copy-btn").forEach((btn) => {
+        btn.dataset.label = t.copyCode;
+        btn.setAttribute("aria-label", t.copyCode);
+      });
+    }
   }
 
   // ==================== 标签页与工作区临时文件管理 ====================
@@ -687,13 +723,15 @@ class MiniMarkApp {
       originalContent: content || "",
       path: path,
       isUntitled: isUntitled,
-      isDirty: false
+      isDirty: false,
+      renderVersion: 0
     };
 
     this.tabs.push(tab);
     this.hideHomeDashboard();
-    this.renderTabs();
-    this.renderFileTree();
+    if (isUntitled || !path) {
+      this.renderFileTree();
+    }
     this.switchTab(tabId);
     return tab;
   }
@@ -776,13 +814,17 @@ if __name__ == "__main__":
     const tab = this.tabs.find(t => t.id === tabId);
     if (!tab) return;
 
+    this.hidePreviewContextMenu();
+    clearTimeout(this.renderDebounceTimer);
     this.activeTabId = tabId;
     this.hideHomeDashboard();
     this.dom.editorTextarea.value = tab.content;
     this.renderTabs();
-    this.renderFileTree();
+    this.updateFileTreeActiveState();
     this.renderOutline();
-    this.renderCurrentMarkdown();
+    if (this.mode !== "edit") {
+      this.renderCurrentMarkdownIfNeeded();
+    }
     this.updateStatusBar();
 
     if (this.backend && this.backend.set_window_title) {
@@ -887,9 +929,12 @@ if __name__ == "__main__":
     const tabIndex = this.tabs.findIndex(t => t.id === tabId);
     if (tabIndex === -1) return;
 
+    const closedTab = this.tabs[tabIndex];
+    const wasDraft = closedTab.isUntitled || !closedTab.path;
     this.tabs.splice(tabIndex, 1);
 
     if (this.tabs.length === 0) {
+      this.renderedKey = null;
       this.showHomeDashboard();
       return;
     }
@@ -897,9 +942,10 @@ if __name__ == "__main__":
     if (this.activeTabId === tabId) {
       const nextTab = this.tabs[Math.max(0, tabIndex - 1)] || this.tabs[0];
       this.switchTab(nextTab.id);
+      if (wasDraft) this.renderFileTree();
     } else {
       this.renderTabs();
-      this.renderFileTree();
+      if (wasDraft) this.renderFileTree();
       this.renderOutline();
     }
   }
@@ -1114,6 +1160,19 @@ if __name__ == "__main__":
     }, 60);
   }
 
+  normalizePath(filePath) {
+    return (filePath || "").replace(/\\/g, "/");
+  }
+
+  escapeHtml(text) {
+    return String(text || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   handleOpenFile() {
     if (this.backend && this.backend.open_file_dialog) {
       this.backend.open_file_dialog((resStr) => {
@@ -1121,7 +1180,7 @@ if __name__ == "__main__":
           const res = JSON.parse(resStr);
           if (res.success) {
             this.openFileFromData(res.path, res.name, res.content);
-            if (res.dir && !this.workspaceData) {
+            if (res.dir && !this.workspaceData && !this.pendingWorkspacePath) {
               this.loadWorkspace(res.dir);
             }
           }
@@ -1176,30 +1235,42 @@ if __name__ == "__main__":
     }
   }
 
-  openFileByPath(filePath, fileName = null) {
-    const ext = (filePath.split(".").pop() || "").toLowerCase();
+  openFileByPath(filePath, fileName = null, retries = 30) {
+    if (!filePath) return;
+    const normPath = this.normalizePath(filePath);
+    const ext = (normPath.split(".").pop() || "").toLowerCase();
     const dotExt = "." + ext;
     if (!SUPPORTED_EXTENSIONS.includes(dotExt)) {
       this.showToast(I18N[this.lang].unsupportedFile, "warning");
       return;
     }
 
-    const existing = this.tabs.find(t => t.path === filePath);
+    const existing = this.tabs.find(t => this.normalizePath(t.path) === normPath);
     if (existing) {
       this.switchTab(existing.id);
       return;
     }
 
     if (!this.backend || !this.backend.read_file) {
-      setTimeout(() => this.openFileByPath(filePath, fileName), 100);
+      if (retries > 0) {
+        setTimeout(() => this.openFileByPath(filePath, fileName, retries - 1), 100);
+      }
       return;
     }
 
+    const openSeq = ++this.latestOpenSeq;
+    if (this.pendingOpenPaths.has(normPath)) {
+      return;
+    }
+    this.pendingOpenPaths.add(normPath);
+
     this.backend.read_file(filePath, (resStr) => {
+      this.pendingOpenPaths.delete(normPath);
       try {
         const res = JSON.parse(resStr);
         if (res.success) {
-          this.openFileFromData(res.path, res.name, res.content);
+          const shouldActivate = openSeq === this.latestOpenSeq;
+          this.openFileFromData(res.path, res.name, res.content, shouldActivate);
         } else {
           this.showToast("打开文件失败: " + res.error, "error");
         }
@@ -1209,7 +1280,14 @@ if __name__ == "__main__":
     });
   }
 
-  openFileFromData(path, name, content) {
+  openFileFromData(path, name, content, shouldActivate = true) {
+    const normPath = this.normalizePath(path);
+    const existing = normPath ? this.tabs.find(t => this.normalizePath(t.path) === normPath) : null;
+    if (existing) {
+      if (shouldActivate) this.switchTab(existing.id);
+      return;
+    }
+
     this.addRecentFile(path, name);
     this.renderHomeRecents();
 
@@ -1225,13 +1303,19 @@ if __name__ == "__main__":
       targetTab.originalContent = content;
       targetTab.isUntitled = false;
       targetTab.isDirty = false;
+      targetTab.renderVersion = (targetTab.renderVersion || 0) + 1;
       this.hideHomeDashboard();
       this.dom.editorTextarea.value = content;
       this.renderTabs();
       this.renderFileTree();
       this.renderOutline();
-      this.renderCurrentMarkdown();
+      if (this.mode !== "edit") {
+        this.renderCurrentMarkdown();
+      }
       this.updateStatusBar();
+      if (this.backend && this.backend.set_window_title) {
+        this.backend.set_window_title(targetTab.name);
+      }
 
       // 智能替换时，左侧工作区自动加载并展示该文件所在的文件夹目录树
       if (path) {
@@ -1241,8 +1325,21 @@ if __name__ == "__main__":
           this.loadWorkspace(dir);
         }
       }
-    } else {
+    } else if (shouldActivate) {
       this.createTab(name, content, path, false);
+    } else {
+      const tabId = "tab_" + (this.nextTabId++);
+      this.tabs.push({
+        id: tabId,
+        name: name || I18N[this.lang].untitled,
+        content: content || "",
+        originalContent: content || "",
+        path: path,
+        isUntitled: false,
+        isDirty: false,
+        renderVersion: 0
+      });
+      this.renderTabs();
     }
   }
 
@@ -1313,7 +1410,7 @@ if __name__ == "__main__":
             // 关键规范：仅有用户主动保存临时文件的时候工作区要切换成保存的目录
             if (wasUntitled && isUserActiveSave) {
               const savedDir = res.dir || tab.path.substring(0, Math.max(tab.path.lastIndexOf('/'), tab.path.lastIndexOf('\\')));
-              if (savedDir) this.loadWorkspace(savedDir);
+              if (savedDir) this.loadWorkspace(savedDir, true);
             }
           }
         } catch (e) {
@@ -1557,7 +1654,7 @@ if __name__ == "__main__":
               this.forceCloseTab(openTab.id);
             }
             if (this.workspaceData && this.workspaceData.path) {
-              this.loadWorkspace(this.workspaceData.path);
+              this.loadWorkspace(this.workspaceData.path, true);
             }
           } else if (res && res.error) {
             this.showToast("删除失败: " + res.error, "error");
@@ -1569,13 +1666,36 @@ if __name__ == "__main__":
     }
   }
 
-  loadWorkspace(folderPath) {
+  loadWorkspace(folderPath, forceReload = false, retries = 30) {
+    if (!folderPath) return;
+    const normPath = this.normalizePath(folderPath);
+
+    if (!forceReload) {
+      if (this.workspaceData && this.normalizePath(this.workspaceData.path) === normPath) {
+        if (this.isSidebarCollapsed) this.toggleSidebar();
+        return;
+      }
+      if (this.pendingWorkspacePath === normPath) {
+        return;
+      }
+    }
+
     if (!this.backend || !this.backend.get_folder_tree) {
-      setTimeout(() => this.loadWorkspace(folderPath), 100);
+      if (retries > 0) {
+        setTimeout(() => this.loadWorkspace(folderPath, forceReload, retries - 1), 100);
+      }
       return;
     }
 
+    const loadSeq = ++this.workspaceLoadSeq;
+    this.pendingWorkspacePath = normPath;
+
     this.backend.get_folder_tree(folderPath, (resStr) => {
+      if (this.pendingWorkspacePath === normPath) {
+        this.pendingWorkspacePath = null;
+      }
+      if (loadSeq !== this.workspaceLoadSeq) return;
+
       try {
         const res = JSON.parse(resStr);
         if (res.success && res.data) {
@@ -1593,9 +1713,42 @@ if __name__ == "__main__":
 
   // ==================== 侧边栏文件树与临时文件展示 ====================
 
+  createTempFileTreeNode(tab) {
+    const nodeEl = document.createElement("div");
+    nodeEl.className = "tree-node temp-file" + (tab.id === this.activeTabId ? " active" : "");
+    nodeEl.dataset.tabId = tab.id;
+    nodeEl.innerHTML = `
+      <span class="node-spacer"></span>
+      <span class="node-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+        </svg>
+      </span>
+      <span class="tree-node-name">${this.escapeHtml(tab.name)}</span>
+      <span class="temp-tag">${I18N[this.lang].tempTag}</span>
+    `;
+    nodeEl.onclick = () => this.switchTab(tab.id);
+    return nodeEl;
+  }
+
+  updateFileTreeActiveState() {
+    const treeEl = this.dom.fileTree;
+    if (!treeEl) return;
+    const activeTab = this.getActiveTab();
+    const activePath = activeTab && activeTab.path ? this.normalizePath(activeTab.path) : "";
+    const activeId = activeTab ? activeTab.id : "";
+
+    treeEl.querySelectorAll(".tree-node").forEach((node) => {
+      const isActive = node.dataset.tabId
+        ? node.dataset.tabId === activeId
+        : (activePath !== "" && node.dataset.path === activePath);
+      node.classList.toggle("active", !!isActive);
+    });
+  }
+
   renderFileTree() {
     const treeEl = this.dom.fileTree;
-    treeEl.innerHTML = "";
+    const frag = document.createDocumentFragment();
 
     // 收集未保存/未指定路径的临时草稿
     const tempTabs = this.tabs.filter(t => t.isUntitled || !t.path);
@@ -1618,31 +1771,20 @@ if __name__ == "__main__":
           <span>${I18N[this.lang].newFileAction}</span>
         </button>
       `;
-      treeEl.appendChild(emptyActions);
+      frag.appendChild(emptyActions);
 
       if (tempTabs.length > 0) {
         const tempSectionTitle = document.createElement("div");
         tempSectionTitle.style.cssText = "padding: 10px 12px 4px; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase;";
         tempSectionTitle.innerText = this.lang === "zh" ? "临时草稿文件" : "Draft Files";
-        treeEl.appendChild(tempSectionTitle);
+        frag.appendChild(tempSectionTitle);
 
         tempTabs.forEach(tab => {
-          const nodeEl = document.createElement("div");
-          nodeEl.className = "tree-node temp-file" + (tab.id === this.activeTabId ? " active" : "");
-          nodeEl.innerHTML = `
-            <span class="node-spacer"></span>
-            <span class="node-icon">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-              </svg>
-            </span>
-            <span class="tree-node-name">${tab.name}</span>
-            <span class="temp-tag">${I18N[this.lang].tempTag}</span>
-          `;
-          nodeEl.onclick = () => this.switchTab(tab.id);
-          treeEl.appendChild(nodeEl);
+          frag.appendChild(this.createTempFileTreeNode(tab));
         });
       }
+      treeEl.innerHTML = "";
+      treeEl.appendChild(frag);
       return;
     }
 
@@ -1651,35 +1793,25 @@ if __name__ == "__main__":
     // 1. 如果有临时文件，置顶展示在工作区
     if (tempTabs.length > 0) {
       tempTabs.forEach(tab => {
-        const nodeEl = document.createElement("div");
-        nodeEl.className = "tree-node temp-file" + (tab.id === this.activeTabId ? " active" : "");
-        nodeEl.innerHTML = `
-          <span class="node-spacer"></span>
-          <span class="node-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-            </svg>
-          </span>
-          <span class="tree-node-name">${tab.name}</span>
-          <span class="temp-tag">${I18N[this.lang].tempTag}</span>
-        `;
-        nodeEl.onclick = () => this.switchTab(tab.id);
-        treeEl.appendChild(nodeEl);
+        frag.appendChild(this.createTempFileTreeNode(tab));
       });
 
       // 临时文件与文件夹目录之间的分割线
       const divider = document.createElement("div");
       divider.className = "sidebar-tree-divider";
-      treeEl.appendChild(divider);
+      frag.appendChild(divider);
     }
 
     // 2. 渲染文件夹树结构
     if (this.workspaceData.children) {
       this.workspaceData.children.forEach(item => {
         const nodeEl = this.createTreeNodeElement(item);
-        if (nodeEl) treeEl.appendChild(nodeEl);
+        if (nodeEl) frag.appendChild(nodeEl);
       });
     }
+
+    treeEl.innerHTML = "";
+    treeEl.appendChild(frag);
   }
 
   createTreeNodeElement(item) {
@@ -1691,12 +1823,16 @@ if __name__ == "__main__":
       }
     }
 
+    const normPath = this.normalizePath(item.path);
     const container = document.createElement("div");
 
     const nodeEl = document.createElement("div");
     const activeTab = this.getActiveTab();
-    const isCurrentActive = activeTab && activeTab.path === item.path;
+    const isCurrentActive = activeTab && activeTab.path && this.normalizePath(activeTab.path) === normPath;
     nodeEl.className = "tree-node" + (isCurrentActive ? " active" : "");
+    if (!item.isDir) {
+      nodeEl.dataset.path = normPath;
+    }
 
     let chevronHtml = `<span class="node-spacer"></span>`;
     let iconHtml = "";
@@ -1737,10 +1873,11 @@ if __name__ == "__main__":
       }
     }
 
+    const safeName = this.escapeHtml(item.name);
     nodeEl.innerHTML = `
       ${chevronHtml}
       ${iconHtml}
-      <span class="tree-node-name" title="${item.name}">${item.name}</span>
+      <span class="tree-node-name" title="${safeName}">${safeName}</span>
     `;
 
     // 右键上下文菜单
@@ -1751,8 +1888,10 @@ if __name__ == "__main__":
     };
 
     if (item.isDir) {
+      const isExpanded = this.expandedDirs.has(normPath);
+      if (isExpanded) nodeEl.classList.add("expanded");
       const childrenContainer = document.createElement("div");
-      childrenContainer.className = "tree-children";
+      childrenContainer.className = "tree-children" + (isExpanded ? " show" : "");
       if (item.children) {
         item.children.forEach(child => {
           const childEl = this.createTreeNodeElement(child);
@@ -1762,8 +1901,13 @@ if __name__ == "__main__":
 
       nodeEl.onclick = (e) => {
         e.stopPropagation();
-        nodeEl.classList.toggle("expanded");
-        childrenContainer.classList.toggle("show");
+        const expanded = nodeEl.classList.toggle("expanded");
+        childrenContainer.classList.toggle("show", expanded);
+        if (expanded) {
+          this.expandedDirs.add(normPath);
+        } else {
+          this.expandedDirs.delete(normPath);
+        }
       };
 
       container.appendChild(nodeEl);
@@ -2186,9 +2330,10 @@ sequenceDiagram
     }
   }
 
-  // ==================== 右键上下文菜单 ====================
+  // ==================== 右键上下文菜单与查看区选择复制 ====================
 
   showContextMenu(x, y, targetItem) {
+    this.hidePreviewContextMenu();
     this.contextTarget = targetItem;
     const menu = this.dom.contextMenu;
     menu.style.display = "block";
@@ -2199,6 +2344,188 @@ sequenceDiagram
   hideContextMenu() {
     this.dom.contextMenu.style.display = "none";
     this.contextTarget = null;
+  }
+
+  showPreviewContextMenu(x, y) {
+    if (!this.dom.previewContextMenu || !this.activeTabId) return;
+    this.hideContextMenu();
+
+    const previewSel = this.getPreviewSelection();
+    this.previewContextRange = previewSel ? previewSel.range.cloneRange() : null;
+    this.previewContextSelectedText = previewSel ? previewSel.text : "";
+
+    const hasSelection = !!(this.previewContextSelectedText && this.previewContextSelectedText.length > 0);
+    const hasContent = !!(this.dom.previewContent && (this.dom.previewContent.innerText || "").trim().length > 0);
+
+    if (this.dom.ctxPreviewCopy) {
+      this.dom.ctxPreviewCopy.classList.toggle("disabled", !hasSelection);
+    }
+    if (this.dom.ctxPreviewSelectAll) {
+      this.dom.ctxPreviewSelectAll.classList.toggle("disabled", !hasContent);
+    }
+
+    const menu = this.dom.previewContextMenu;
+    menu.style.display = "block";
+    const rect = menu.getBoundingClientRect();
+    const maxLeft = Math.max(6, window.innerWidth - rect.width - 6);
+    const maxTop = Math.max(6, window.innerHeight - rect.height - 6);
+    menu.style.left = `${Math.min(Math.max(6, x), maxLeft)}px`;
+    menu.style.top = `${Math.min(Math.max(6, y), maxTop)}px`;
+  }
+
+  hidePreviewContextMenu() {
+    if (this.dom.previewContextMenu) {
+      this.dom.previewContextMenu.style.display = "none";
+    }
+    this.previewContextRange = null;
+    this.previewContextSelectedText = "";
+  }
+
+  getPreviewSelection() {
+    const preview = this.dom.previewContainer;
+    if (!preview || preview.style.display === "none") return null;
+
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+
+    const range = sel.getRangeAt(0);
+    const text = sel.toString();
+    if (!text) return null;
+
+    const anchorInside = sel.anchorNode && preview.contains(sel.anchorNode);
+    const focusInside = sel.focusNode && preview.contains(sel.focusNode);
+    const ancestorInside = preview.contains(range.commonAncestorContainer);
+    if (!ancestorInside && !(anchorInside && focusInside)) return null;
+
+    return { selection: sel, range, text };
+  }
+
+  selectAllPreview() {
+    const preview = this.dom.previewContent;
+    if (!preview || !this.activeTabId) return;
+    const sel = window.getSelection();
+    if (!sel) return;
+    const range = document.createRange();
+    range.selectNodeContents(preview);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  handlePreviewContextCopy() {
+    if (this.dom.ctxPreviewCopy && this.dom.ctxPreviewCopy.classList.contains("disabled")) {
+      return;
+    }
+    const range = this.previewContextRange;
+    const currentSel = this.getPreviewSelection();
+    const text = this.previewContextSelectedText || (currentSel ? currentSel.text : "");
+    this.hidePreviewContextMenu();
+    if (!text) return;
+    this.copyPreviewSelection(range, text).then((ok) => {
+      if (!ok) {
+        this.showToast(
+          this.lang === "zh" ? "复制失败，请使用 Ctrl+C 复制" : "Copy failed, please use Ctrl+C",
+          "warning",
+          2200
+        );
+      }
+    });
+  }
+
+  handlePreviewContextSelectAll() {
+    if (this.dom.ctxPreviewSelectAll && this.dom.ctxPreviewSelectAll.classList.contains("disabled")) {
+      return;
+    }
+    this.hidePreviewContextMenu();
+    this.selectAllPreview();
+  }
+
+  async copyPreviewSelection(fallbackRange = null, fallbackText = "") {
+    const sel = window.getSelection();
+    let activeSel = this.getPreviewSelection();
+
+    if (!activeSel && fallbackRange && sel) {
+      try {
+        sel.removeAllRanges();
+        sel.addRange(fallbackRange);
+        activeSel = this.getPreviewSelection();
+      } catch (err) {
+        // 选区已失效时降级为纯文本复制
+      }
+    }
+
+    const textToCopy = (activeSel && activeSel.text) || fallbackText;
+    if (!textToCopy) return false;
+
+    if (activeSel) {
+      try {
+        if (document.execCommand("copy")) {
+          return true;
+        }
+      } catch (err) {
+        // 降级到剪贴板 API
+      }
+    }
+
+    return this.copyTextToClipboard(textToCopy);
+  }
+
+  async copyTextToClipboard(text) {
+    if (!text) return false;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (err) {
+        // 部分本地页面或引擎未授予异步剪贴板权限时降级处理
+      }
+    }
+    return this.fallbackCopyText(text);
+  }
+
+  fallbackCopyText(text) {
+    if (!text) return false;
+    const sel = window.getSelection();
+    const savedRanges = [];
+    if (sel) {
+      for (let i = 0; i < sel.rangeCount; i++) {
+        savedRanges.push(sel.getRangeAt(i).cloneRange());
+      }
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.cssText = "position: fixed; top: 0; left: -9999px; opacity: 0; pointer-events: none;";
+    document.body.appendChild(textarea);
+
+    let copied = false;
+    try {
+      textarea.focus({ preventScroll: true });
+      textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
+      copied = document.execCommand("copy");
+    } catch (err) {
+      copied = false;
+    } finally {
+      textarea.remove();
+      if (sel) {
+        sel.removeAllRanges();
+        savedRanges.forEach((r) => {
+          try { sel.addRange(r); } catch (err) {}
+        });
+      }
+    }
+    return copied;
+  }
+
+  isTextInputFocused(el = document.activeElement) {
+    if (!el) return false;
+    if (el.tagName === "TEXTAREA" || el.isContentEditable) return true;
+    if (el.tagName === "INPUT") {
+      const inputType = (el.type || "text").toLowerCase();
+      return !["checkbox", "radio", "button", "submit", "reset"].includes(inputType);
+    }
+    return false;
   }
 
   // ==================== 侧边栏折叠 ====================
@@ -2214,10 +2541,22 @@ sequenceDiagram
     const tab = this.getActiveTab();
     if (!tab) return;
 
+    const wasDirty = tab.isDirty;
     tab.content = this.dom.editorTextarea.value;
     tab.isDirty = tab.content !== tab.originalContent;
-    this.renderTabs();
-    this.renderCurrentMarkdown();
+    tab.renderVersion = (tab.renderVersion || 0) + 1;
+
+    if (wasDirty !== tab.isDirty) {
+      this.renderTabs();
+    }
+
+    if (this.mode !== "edit") {
+      clearTimeout(this.renderDebounceTimer);
+      this.renderDebounceTimer = setTimeout(() => {
+        this.renderCurrentMarkdown();
+      }, 100);
+    }
+
     this.updateStatusBar();
 
     // 防抖同步大纲
@@ -2227,34 +2566,54 @@ sequenceDiagram
     }, 250);
   }
 
-  renderCurrentMarkdown() {
+  renderCurrentMarkdownIfNeeded() {
     const tab = this.getActiveTab();
     if (!tab) {
+      this.renderedKey = null;
       this.dom.previewContent.innerHTML = "";
       return;
     }
+    const key = `${tab.id}:${tab.renderVersion || 0}:${this.theme}`;
+    if (this.renderedKey === key) return;
+    this.renderCurrentMarkdown();
+  }
+
+  renderCurrentMarkdown() {
+    const tab = this.getActiveTab();
+    if (!tab) {
+      this.renderedKey = null;
+      this.dom.previewContent.innerHTML = "";
+      return;
+    }
+
+    const renderSeq = ++this.currentRenderSeq;
+    this.renderedKey = `${tab.id}:${tab.renderVersion || 0}:${this.theme}`;
 
     if (window.marked) {
       try {
         const rawHtml = marked.parse(tab.content || "");
         this.dom.previewContent.innerHTML = rawHtml;
       } catch (err) {
-        this.dom.previewContent.innerHTML = `<p style="color:red;">Markdown 解析错误: ${err.message}</p>`;
+        this.dom.previewContent.innerHTML = `<p style="color:red;">Markdown 解析错误: ${this.escapeHtml(err.message)}</p>`;
       }
     } else {
       this.dom.previewContent.innerText = tab.content || "";
     }
 
     if (window.renderMathInElement) {
-      renderMathInElement(this.dom.previewContent, {
-        delimiters: [
-          { left: "$$", right: "$$", display: true },
-          { left: "$", right: "$", display: false },
-          { left: "\\(", right: "\\)", display: false },
-          { left: "\\[", right: "\\]", display: true }
-        ],
-        throwOnError: false
-      });
+      try {
+        renderMathInElement(this.dom.previewContent, {
+          delimiters: [
+            { left: "$$", right: "$$", display: true },
+            { left: "$", right: "$", display: false },
+            { left: "\\(", right: "\\)", display: false },
+            { left: "\\[", right: "\\]", display: true }
+          ],
+          throwOnError: false
+        });
+      } catch (err) {
+        console.warn("KaTeX render warning:", err);
+      }
     }
 
     if (window.mermaid) {
@@ -2267,27 +2626,45 @@ sequenceDiagram
         div.textContent = codeText;
         pre.parentNode.replaceChild(div, pre);
       });
-      try {
-        mermaid.run({ nodes: this.dom.previewContent.querySelectorAll(".mermaid") });
-      } catch (err) {
-        console.warn("Mermaid render warning:", err);
+      const mermaidNodes = this.dom.previewContent.querySelectorAll(".mermaid");
+      if (mermaidNodes.length > 0) {
+        try {
+          const maybePromise = mermaid.run({ nodes: mermaidNodes });
+          if (maybePromise && typeof maybePromise.catch === "function") {
+            maybePromise.catch((err) => {
+              if (renderSeq === this.currentRenderSeq) {
+                console.warn("Mermaid render warning:", err);
+              }
+            });
+          }
+        } catch (err) {
+          console.warn("Mermaid render warning:", err);
+        }
       }
     }
 
     if (window.Prism) {
-      Prism.highlightAllUnder(this.dom.previewContent);
+      try {
+        Prism.highlightAllUnder(this.dom.previewContent);
+      } catch (err) {
+        console.warn("Prism highlight warning:", err);
+      }
     }
 
     this.dom.previewContent.querySelectorAll("pre").forEach(pre => {
       if (pre.querySelector(".code-copy-btn")) return;
       const copyBtn = document.createElement("button");
       copyBtn.className = "code-copy-btn";
-      copyBtn.innerText = I18N[this.lang].copyCode;
+      copyBtn.type = "button";
+      copyBtn.dataset.label = I18N[this.lang].copyCode;
+      copyBtn.setAttribute("aria-label", I18N[this.lang].copyCode);
       copyBtn.onclick = () => {
         const codeText = pre.querySelector("code") ? pre.querySelector("code").innerText : pre.innerText;
-        navigator.clipboard.writeText(codeText).then(() => {
-          copyBtn.innerText = I18N[this.lang].copied;
-          setTimeout(() => { copyBtn.innerText = I18N[this.lang].copyCode; }, 1500);
+        this.copyTextToClipboard(codeText).then((ok) => {
+          if (ok) {
+            copyBtn.dataset.label = I18N[this.lang].copied;
+            setTimeout(() => { copyBtn.dataset.label = I18N[this.lang].copyCode; }, 1500);
+          }
         });
       };
       pre.appendChild(copyBtn);
@@ -2300,7 +2677,7 @@ sequenceDiagram
       };
     });
 
-    if (this.dom.searchPanel.style.display !== "none" && this.searchState.query) {
+    if (this.dom.searchPanel.style.display !== "none" && this.searchState.query && this.searchState.query.trim()) {
       this.executeSearchHighlight(this.searchState.query);
     }
   }
@@ -2515,6 +2892,10 @@ sequenceDiagram
 
     this.dom.editorTextarea.value = tab.content;
     this.handleEditorInput();
+    if (this.mode !== "edit") {
+      clearTimeout(this.renderDebounceTimer);
+      this.renderCurrentMarkdown();
+    }
     this.handleSearch(query);
   }
 
@@ -2528,6 +2909,10 @@ sequenceDiagram
     tab.content = tab.content.replace(regex, replaceText);
     this.dom.editorTextarea.value = tab.content;
     this.handleEditorInput();
+    if (this.mode !== "edit") {
+      clearTimeout(this.renderDebounceTimer);
+      this.renderCurrentMarkdown();
+    }
     this.handleSearch(query);
     this.showToast("已完成全部替换", "info", 1500);
   }
@@ -2600,12 +2985,57 @@ sequenceDiagram
   initEventListeners() {
     this.dom.modeCapsule.addEventListener("click", (e) => this.toggleCapsule(e));
     this.dom.editorTextarea.addEventListener("input", () => this.handleEditorInput());
+    this.dom.editorTextarea.addEventListener("focus", () => {
+      this.lastFocusedPane = "editor";
+    });
+    this.dom.editorTextarea.addEventListener("mousedown", () => {
+      this.lastFocusedPane = "editor";
+    });
+
+    if (this.dom.previewContainer) {
+      this.dom.previewContainer.addEventListener("contextmenu", (e) => {
+        if (!this.activeTabId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.lastFocusedPane = "preview";
+        this.showPreviewContextMenu(e.clientX, e.clientY);
+      });
+
+      this.dom.previewContainer.addEventListener("mousedown", () => {
+        this.lastFocusedPane = "preview";
+      });
+
+      this.dom.previewContainer.addEventListener("scroll", () => {
+        this.hidePreviewContextMenu();
+      });
+    }
+
+    if (this.dom.previewContextMenu) {
+      this.dom.previewContextMenu.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+    }
+
+    document.addEventListener("mousedown", (e) => {
+      if (this.dom.previewContextMenu && !this.dom.previewContextMenu.contains(e.target)) {
+        this.hidePreviewContextMenu();
+      }
+      if (this.dom.contextMenu && !this.dom.contextMenu.contains(e.target)) {
+        this.hideContextMenu();
+      }
+    });
 
     document.addEventListener("click", (e) => {
       if (!this.dom.modeCapsule.contains(e.target)) {
         this.closeCapsule();
       }
-      this.hideContextMenu();
+      if (this.dom.contextMenu && !this.dom.contextMenu.contains(e.target)) {
+        this.hideContextMenu();
+      }
+      if (this.dom.previewContextMenu && !this.dom.previewContextMenu.contains(e.target)) {
+        this.hidePreviewContextMenu();
+      }
     });
 
     this.dom.searchInput.addEventListener("input", (e) => this.handleSearch(e.target.value));
@@ -2675,6 +3105,17 @@ sequenceDiagram
     window.addEventListener("keydown", (e) => {
       const isCtrl = e.ctrlKey || e.metaKey;
 
+      if (e.key === "Escape") {
+        if (this.dom.previewContextMenu && this.dom.previewContextMenu.style.display !== "none") {
+          this.hidePreviewContextMenu();
+          return;
+        }
+        if (this.dom.contextMenu && this.dom.contextMenu.style.display !== "none") {
+          this.hideContextMenu();
+          return;
+        }
+      }
+
       if (e.key === "Escape" && this.dom.saveConfirmModal && this.dom.saveConfirmModal.style.display !== "none") {
         this.hideSaveConfirmDialog();
         return;
@@ -2688,6 +3129,41 @@ sequenceDiagram
       if (e.key === "Escape" && this.dom.winIntegrationModal && this.dom.winIntegrationModal.style.display !== "none") {
         this.closeWindowsIntegrationModal();
         return;
+      }
+
+      const isTextInput = this.isTextInputFocused();
+      const hasModalOpen =
+        (this.dom.saveConfirmModal && this.dom.saveConfirmModal.style.display !== "none") ||
+        (this.dom.settingsModal && this.dom.settingsModal.style.display !== "none") ||
+        (this.dom.winIntegrationModal && this.dom.winIntegrationModal.style.display !== "none");
+
+      if (isCtrl && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "a") {
+        if (!isTextInput && !hasModalOpen && this.activeTabId) {
+          if (this.mode === "preview" || (this.mode === "split" && this.lastFocusedPane === "preview")) {
+            e.preventDefault();
+            this.hidePreviewContextMenu();
+            this.selectAllPreview();
+            return;
+          }
+        }
+      }
+
+      if (isCtrl && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "c") {
+        this.hidePreviewContextMenu();
+        if (!isTextInput && !hasModalOpen) {
+          const previewSel = this.getPreviewSelection();
+          if (previewSel && previewSel.text) {
+            let nativeCopyHandled = false;
+            const onCopy = () => { nativeCopyHandled = true; };
+            document.addEventListener("copy", onCopy, { once: true });
+            setTimeout(() => {
+              document.removeEventListener("copy", onCopy);
+              if (!nativeCopyHandled) {
+                this.copyPreviewSelection(previewSel.range, previewSel.text);
+              }
+            }, 0);
+          }
+        }
       }
 
       if (isCtrl && e.key.toLowerCase() === "n") {

@@ -16,7 +16,7 @@
   <meta http-equiv="Expires" content="0">
 
   <!-- 本地样式 -->
-  <link rel="stylesheet" href="style.css?v=2.2.0-r2">
+  <link rel="stylesheet" href="style.css?v=2.2.1">
 
   <!-- 本地 KaTeX 样式与脚本 -->
   <link rel="stylesheet" href="libs/katex/katex.min.css">
@@ -428,6 +428,20 @@
     </div>
   </div>
 
+  <!-- 预览查看区右键上下文菜单 -->
+  <div class="context-menu" id="preview-context-menu">
+    <div class="context-menu-item" id="ctx-preview-copy" onclick="app.handlePreviewContextCopy()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      <span data-i18n="ctxCopy">复制</span>
+      <span class="context-menu-shortcut">Ctrl+C</span>
+    </div>
+    <div class="context-menu-item" id="ctx-preview-select-all" onclick="app.handlePreviewContextSelectAll()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7V4h3M17 4h3v3M4 17v3h3M17 20h3v-3M8 8h8M8 12h8M8 16h5"/></svg>
+      <span data-i18n="ctxSelectAll">全选</span>
+      <span class="context-menu-shortcut">Ctrl+A</span>
+    </div>
+  </div>
+
   <!-- 底部极简状态栏 -->
   <div class="statusbar" id="statusbar">
     <div class="statusbar-group">
@@ -443,6 +457,6 @@
   </div>
 
   <!-- 应用业务逻辑 -->
-  <script src="app.js?v=2.2.0-r2"></script>
+  <script src="app.js?v=2.2.1"></script>
 </body>
 </html>

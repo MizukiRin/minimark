@@ -152,6 +152,16 @@ markdown_app/
 
 ## 6. 全版本迭代演进与变更历史 (Changelog)
 
+### [v2.2.1 Release] - 2026-11-21 (查看模式鼠标选择复制、右键菜单与打开/切换稳定性优化)
+- **[新增] 查看模式鼠标选择与右键复制 / 全选支持**：
+  1. 修复预览区子节点受全局 `user-select: none` 限制导致无法划词选中的问题，启用 `::selection` 主题高亮与链接/图片防误拖拽；
+  2. 代码块复制按钮改用 `::after` 渲染文案，避免划选或全选代码块时误复制「复制 / Copy」按钮文字；
+  3. 为查看区与双栏预览区新增极简右键菜单（「复制 `Ctrl+C`」、「全选 `Ctrl+A`」），并完善 `Ctrl+A` / `Ctrl+C` 及 PySide6 `JavascriptCanAccessClipboard` 支持。
+- **[修复与优化] 同窗口连续打开与点选多个 Markdown 文件卡死问题**：
+  1. **MiniMark Lite 弹窗线程安全**：将 `OpenFileDialog` / `SaveFileDialog` / `OpenFolderDialog` 通过 `native.Invoke` 统一调度到 WinForms STA UI 线程执行，修复跨线程 COM 弹窗死锁；
+  2. **工作区扫描与 DOM 渲染优化**：`WorkspaceManager.get_folder_tree` 增加句柄及时关闭、防软链接死循环与条目上限保护；前端消除并发重复扫描、文件树全量重建与非编辑/无变更时的多余 Markdown 重渲染，并保护 Mermaid 异步渲染异常。
+- **[双版本同步发布]**：标准版 `MiniMark` 与轻量版 `MiniMark Lite` 同步升级至 `v2.2.1`。
+
 ### [v2.2.0 Release] - 2026-09-13 (当前最新重大版本：渲染导出 HTML/PDF、工作区纯净过滤与设置中心升级)
 - **[新增] 渲染后 Markdown 导出为 HTML 与高保真矢量 PDF**：
   1. **HTML 独立导出**：提取当前渲染后包含 KaTeX 数学公式、Prism 语法高亮与 Mermaid SVG 图表的完整 DOM，封装输出完全离线自包含的单文件 `.html`，可在任意浏览器及设备离线无损查看；

@@ -739,6 +739,8 @@ body {
   border-radius: 4px;
   outline: none;
   width: 180px;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .search-input:focus {
@@ -854,6 +856,30 @@ mark.search-highlight.active-match {
   background-color: var(--bg-app);
   padding: 36px 48px;
   user-select: text;
+  -webkit-user-select: text;
+}
+
+.preview-container *,
+.preview-content,
+.preview-content * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.preview-container::selection,
+.preview-container ::selection {
+  background-color: var(--selection-bg);
+}
+
+.preview-content .code-copy-btn,
+.preview-content input[type="checkbox"] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.preview-content a,
+.preview-content img {
+  -webkit-user-drag: none;
 }
 
 .preview-content {
@@ -950,6 +976,12 @@ mark.search-highlight.active-match {
   cursor: pointer;
   opacity: 0.6;
   transition: opacity 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.code-copy-btn::after {
+  content: attr(data-label);
 }
 
 .code-copy-btn:hover {
@@ -1190,6 +1222,25 @@ mark.search-highlight.active-match {
 .context-menu-item:hover {
   background-color: var(--primary-soft);
   color: var(--primary);
+}
+
+.context-menu-item.disabled {
+  opacity: 0.42;
+  cursor: default;
+  pointer-events: none;
+}
+
+.context-menu-item.disabled:hover {
+  background-color: transparent;
+  color: var(--text-main);
+}
+
+.context-menu-shortcut {
+  margin-left: auto;
+  padding-left: 16px;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
 }
 
 .context-menu-divider {

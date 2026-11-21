@@ -17,7 +17,7 @@ class WorkspaceManager:
     }
 
     @classmethod
-    def get_folder_tree(cls, folder_path: str, max_depth: int = 5) -> dict:
+    def get_folder_tree(cls, folder_path: str, max_depth: int = 5, max_entries: int = 3000) -> dict:
         """
         递归生成工作区文件夹的目录树 JSON 结构。
         """
@@ -26,22 +26,35 @@ class WorkspaceManager:
             if not os.path.isdir(root_path):
                 return {"success": False, "error": "工作区目录不存在"}
 
+            state = {"count": 0, "truncated": False}
+
             def scan_dir(dir_path: str, depth: int = 0):
-                if depth > max_depth:
+                if depth > max_depth or state["count"] >= max_entries:
+                    if state["count"] >= max_entries:
+                        state["truncated"] = True
                     return []
                 items = []
                 try:
-                    entries = sorted(os.scandir(dir_path), key=lambda e: (not e.is_dir(), e.name.lower()))
+                    with os.scandir(dir_path) as it:
+                        entries = sorted(
+                            it,
+                            key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()),
+                        )
                     for entry in entries:
                         if entry.name.startswith(".") or entry.name in cls.IGNORED_NAMES:
                             continue
+                        if state["count"] >= max_entries:
+                            state["truncated"] = True
+                            break
 
+                        is_dir = entry.is_dir(follow_symlinks=False)
+                        state["count"] += 1
                         item = {
                             "name": entry.name,
                             "path": entry.path.replace("\\", "/"),
-                            "isDir": entry.is_dir()
+                            "isDir": is_dir
                         }
-                        if entry.is_dir():
+                        if is_dir:
                             item["children"] = scan_dir(entry.path, depth + 1)
                         else:
                             ext = os.path.splitext(entry.name)[1].lower()
@@ -55,7 +68,8 @@ class WorkspaceManager:
                 "name": os.path.basename(root_path) or root_path,
                 "path": root_path.replace("\\", "/"),
                 "isDir": True,
-                "children": scan_dir(root_path)
+                "children": scan_dir(root_path),
+                "truncated": state["truncated"],
             }
             return {"success": True, "data": tree_data}
         except Exception as e:

@@ -101,6 +101,7 @@ class MiniMarkWindow(QMainWindow):
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.ScrollAnimatorEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, True)
 
         # 注册 QtWebChannel 与 Python 后端
         self.channel = QWebChannel(self)
@@ -146,16 +147,22 @@ class MiniMarkWindow(QMainWindow):
         # 1. 异步执行 Windows 应用注册与移动自愈检测（极速 0.1ms，非阻塞）
         QTimer.singleShot(100, self.do_app_registration_check)
 
-        # 2. 若有命令行传入路径，延时 250ms 触发打开（确保 QWebChannel 握手与 DOM 初始化完成）
+        # 2. 若有命令行传入路径，待 window.app 与 QWebChannel 均就绪后触发打开
         if self.initial_path and os.path.exists(self.initial_path):
             import json
             abs_path = os.path.abspath(self.initial_path).replace("\\", "/")
             clean_path = json.dumps(abs_path)
-            if os.path.isdir(self.initial_path):
-                js_code = f"window.app && window.app.loadWorkspace && window.app.loadWorkspace({clean_path});"
-            else:
-                js_code = f"window.app && window.app.openFileByPath && window.app.openFileByPath({clean_path});"
-            QTimer.singleShot(250, lambda: self.browser.page().runJavaScript(js_code))
+            method_name = "loadWorkspace" if os.path.isdir(self.initial_path) else "openFileByPath"
+            js_code = f"""
+            (function openInitialWhenReady(retries) {{
+                if (window.app && window.backend && window.app.{method_name}) {{
+                    window.app.{method_name}({clean_path});
+                }} else if (retries > 0) {{
+                    setTimeout(function() {{ openInitialWhenReady(retries - 1); }}, 100);
+                }}
+            }})(30);
+            """
+            QTimer.singleShot(150, lambda: self.browser.page().runJavaScript(js_code))
 
     def do_app_registration_check(self):
         """执行首次注册或路径自愈，并将结果同步到前端"""
